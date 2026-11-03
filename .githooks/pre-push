@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# Pre-push hook that runs the project's quality checks and test suite.
+# A non-zero exit from either command blocks the push.
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+fail() {
+  printf "\n${RED}${BOLD}[pre-push] $1 failed.${NC}\n"
+  printf "${RED}$2${NC}\n"
+  exit 1
+}
+
+printf "${BOLD}[pre-push]${NC} Running mix quality...\n"
+if ! mix quality; then
+  fail "mix quality" "Fix the compile warnings, formatting, Credo or Dialyzer issues, then push again."
+fi
+printf "${GREEN}${BOLD}[pre-push]${NC} mix quality passed.\n"
+
+printf "${BOLD}[pre-push]${NC} Running mix test...\n"
+if ! mix test; then
+  fail "mix test" "Fix the failing tests, then push again."
+fi
+printf "${GREEN}${BOLD}[pre-push]${NC} mix test passed.\n"
