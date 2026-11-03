@@ -1,0 +1,26 @@
+# Trusted-local Livebook attached to the `make iex` node. Start it with `make livebook-start-dev`,
+# which supplies these variables through a private env file; never expose these ports.
+services:
+  livebook:
+    build:
+      context: .
+      dockerfile: livebook.Dockerfile
+    image: 'localhost/domovoy-livebook:0.19.10-elixir-1.20.2'
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${LIVEBOOK_PORT:?set LIVEBOOK_PORT}:${LIVEBOOK_PORT:?set LIVEBOOK_PORT}'
+      - '127.0.0.1:${LIVEBOOK_IFRAME_PORT:?set LIVEBOOK_IFRAME_PORT}:${LIVEBOOK_IFRAME_PORT:?set LIVEBOOK_IFRAME_PORT}'
+    environment:
+      LIVEBOOK_IP: '0.0.0.0'
+      LIVEBOOK_PORT: '${LIVEBOOK_PORT:?set LIVEBOOK_PORT}'
+      LIVEBOOK_IFRAME_PORT: '${LIVEBOOK_IFRAME_PORT:?set LIVEBOOK_IFRAME_PORT}'
+      LIVEBOOK_TOKEN_ENABLED: 'false'
+      LIVEBOOK_HOME: /notebooks
+      LIVEBOOK_DATA_PATH: /var/lib/livebook
+      LIVEBOOK_NODE: 'livebook@127.0.0.1'
+      LIVEBOOK_DEFAULT_RUNTIME: 'attached:${BORG_NODE:?set BORG_NODE}:${BORG_DIST_COOKIE:?set BORG_DIST_COOKIE in .env}'
+    volumes:
+      - '../docs/livebooks:/notebooks'
+      - 'livebook-data:/var/lib/livebook'
+volumes:
+  livebook-data:

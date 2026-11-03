@@ -1,0 +1,28 @@
+services:
+  dev-database:
+    image: 'docker.io/library/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636'
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:?set POSTGRES_PORT in .env}:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: domovoy_dev
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "domovoy_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres18_data:/var/lib/postgresql
+    networks:
+      - postgres-network
+networks:
+  postgres-network:
+    # In terms of Docker, a bridge network uses a software bridge which lets containers connected to the same bridge network communicate,
+    # while providing isolation from containers that aren't connected to that bridge network.
+    # The Docker bridge driver automatically installs rules in the host machine
+    # so that containers on different bridge networks can't communicate directly with each other.
+    driver: bridge
+
+volumes:
+  postgres18_data:
