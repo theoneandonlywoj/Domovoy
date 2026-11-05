@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Elixir environment
         uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
       - name: Check for unused dependencies
         run: mix deps.unlock --check-unused
 
@@ -30,25 +32,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Elixir environment
         uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
       - run: MIX_ENV=dev mix compile --warnings-as-errors
+      - run: mix assets.setup
+      - run: mix assets.build
 
-  compile-minimum-elixir:
+  js-test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Setup minimum supported Elixir and Erlang
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          elixir-version: "1.18.4"
-          otp-version: "27.3.4.3"
-      - name: Install Hex and Rebar
-        run: |
-          mix local.rebar --force
-          mix local.hex --force
-      - name: Fetch locked dependencies
-        run: mix deps.get --check-locked
-      - name: Compile on the minimum supported Elixir
-        run: MIX_ENV=dev mix compile --warnings-as-errors
+          node-version-file: .tool-versions
+      - run: make test-js
 
   check-outdated-deps:
     needs: dependencies
@@ -60,6 +57,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Elixir environment
         uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
       - name: Check for outdated dependencies
         id: hex-outdated
         continue-on-error: true
@@ -104,6 +103,7 @@ jobs:
       - name: Setup Elixir environment
         uses: ./.github/actions/setup-beam
         with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
           mix-env: test
       - run: MIX_ENV=test mix compile --warnings-as-errors
 
@@ -117,6 +117,8 @@ jobs:
       - name: Setup Elixir environment
         id: setup
         uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
       # On a mix.lock change, restore the newest PLT for the same OTP/Elixir
       # and let Dialyzer update it incrementally instead of rebuilding it.
       - name: Restore cached PLT
@@ -163,6 +165,7 @@ jobs:
       - name: Setup Elixir environment
         uses: ./.github/actions/setup-beam
         with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
           mix-env: test
       - run: mix test
 
@@ -188,6 +191,7 @@ jobs:
       - name: Setup Elixir environment
         uses: ./.github/actions/setup-beam
         with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
           mix-env: test
       - name: Setup database
         run: |

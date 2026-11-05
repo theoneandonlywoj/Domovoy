@@ -1,4 +1,4 @@
-.PHONY: help self iex iex-start-dev env-init env-setup-dev env-start-dev env-stop-dev env-ping-dev livebook-start-dev livebook-stop-dev livebook-logs-dev db-start-dev db-stop-dev db-logs-dev db-force-stop-dev db-setup-dev db-reset-dev db-seed-dev db-seed-test watchman-install git-hooks-setup precommit quality test dev-check-make dev-check-postgres
+.PHONY: help self iex iex-start-dev env-init env-setup-dev env-start-dev env-stop-dev env-ping-dev livebook-start-dev livebook-stop-dev livebook-logs-dev db-start-dev db-stop-dev db-logs-dev db-force-stop-dev db-setup-dev db-reset-dev db-seed-dev db-seed-test watchman-install git-hooks-setup precommit quality test test-js dev-check-make dev-check-postgres
 
 self:
 	cat Makefile
@@ -189,6 +189,10 @@ quality:
 # Run tests
 test:
 	MIX_ENV=test mix test
+
+# Run the composer's pure gesture modules with Node
+test-js:
+	node --test "assets/js/composer/*.test.js"
 
 # Validate Makefile recipes against stubbed dev-service behavior.
 dev-check-make:

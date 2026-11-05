@@ -50,7 +50,8 @@ defmodule DomovoyWeb do
 
   def live_view do
     quote do
-      use Phoenix.LiveView
+      # The default logs event params at debug, and those can hold typed literals.
+      use Phoenix.LiveView, log: false
 
       unquote(html_helpers())
     end

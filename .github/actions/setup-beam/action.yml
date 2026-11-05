@@ -2,6 +2,9 @@ name: Setup Elixir Environment
 description: Setup Elixir/Erlang from .tool-versions, and restore dependency cache
 
 inputs:
+  domovoy-deps-token:
+    description: Fine-grained token with read-only Contents access to the private Domovoy-Core, Domovoy-Git-Plugin, Domovoy-Mise-Plugin and Domovoy-Claude-Code-Plugin repositories
+    required: true
   mix-env:
     description: MIX_ENV whose _build is cached
     default: dev
@@ -17,6 +20,21 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Configure access to private Domovoy dependencies
+      shell: bash
+      env:
+        DOMOVOY_DEPS_TOKEN: ${{ inputs.domovoy-deps-token }}
+      run: |
+        if [ -z "$DOMOVOY_DEPS_TOKEN" ]; then
+          echo "::error::DOMOVOY_DEPS_TOKEN secret is not set"
+          exit 1
+        fi
+        for repo in Domovoy-Core Domovoy-Git-Plugin Domovoy-Mise-Plugin Domovoy-Claude-Code-Plugin; do
+          git config --global \
+            url."https://x-access-token:${DOMOVOY_DEPS_TOKEN}@github.com/theoneandonlywoj/$repo".insteadOf \
+            "https://github.com/theoneandonlywoj/$repo"
+        done
+
     - name: Setup Elixir and Erlang
       id: setup-beam
       uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
@@ -43,5 +61,5 @@ runs:
       run: |
         mix local.rebar --force
         mix local.hex --force
-        mix deps.get
+        mix deps.get --check-locked
         mix deps.compile
