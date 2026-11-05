@@ -5,7 +5,7 @@ defmodule Domovoy.MixProject do
     [
       app: :domovoy,
       version: "0.1.0",
-      elixir: "~> 1.17",
+      elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -48,6 +48,16 @@ defmodule Domovoy.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:domovoy_core, github: "theoneandonlywoj/Domovoy-Core", tag: "v0.3.2", override: true},
+      {:domovoy_git_plugin,
+       github: "theoneandonlywoj/Domovoy-Git-Plugin",
+       ref: "5de98084adaa7b807bb904bfc7b3f46059333209"},
+      {:domovoy_mise_plugin,
+       github: "theoneandonlywoj/Domovoy-Mise-Plugin",
+       ref: "62f7277062fc040fc4505e2359e5db00e2a907d3"},
+      {:domovoy_claude_code_plugin,
+       github: "theoneandonlywoj/Domovoy-Claude-Code-Plugin",
+       ref: "43eada85291888c9068b5c397c20edd817ab6d45"},
       {:phoenix, "~> 1.8.13"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
