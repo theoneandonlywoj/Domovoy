@@ -7,6 +7,8 @@ defmodule Domovoy.Application do
 
   @impl true
   def start(_type, _args) do
+    Domovoy.Catalog.load()
+
     children = [
       DomovoyWeb.Telemetry,
       Domovoy.Repo,
