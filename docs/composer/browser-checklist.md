@@ -319,3 +319,42 @@ card were already in view before Reset, so the off-view state of a newly bound s
 seen. A physical mouse or trackpad wasn't used, the first-selection clipping of the right side
 wasn't measured, and a real keyboard walk of the moved Connect-to buttons wasn't run; their
 events are covered by the LiveView tests, which don't establish focus behaviour.
+
+## Seeded descriptions — phase 2, 2026-11-06
+
+Fresh observations against this phase on port 4010, headless Chrome 156 at 1600x1000
+through CDP, with a temporary driver outside the repo. Pointer press/move/release were
+trusted browser events. Nothing was re-seeded: `Walkthrough Create a worktree` and
+`Walkthrough Cracow house price` were disposable copies of the documents from
+`Definitions.all()`, made with `Composer.create_draft/2`, and every existing draft was left
+alone. `make db-start-dev` stopped on `proxy already running` from the container runtime;
+the dev database was already up and its one migration applied, so the walk went on. Each
+expected title came from the `Definitions.all()` document, compared in full. No page
+exception, console error or error log entry was observed. Earlier results above are
+historical.
+
+| Check | Fresh result |
+|---|---|
+| Runner node card `title` | Pass: every node on all 4 `create_worktree` stages (9) and on `estimate_price` (5), e.g. `#node-resolve-description`. |
+| Stage card `title` | Pass: `#vertex-inspect-`, `-create-`, `-sync-`, `-finalize-` and `#vertex-estimate_price-description`. |
+| Decision card `title` | Pass: `#vertex-route-description`. `cracow_prices`: not applicable, it has no decision. |
+| Input source node `title` | Pass: every input source node on each stage of both drafts, e.g. `#source-branch_name-description`; all 7 on `estimate_price`. |
+| Earlier source `title` | Pass: `#source-worktree_name-description` on `create` and `finalize`, and `#source-resolve-description` on `sync`, each with its origin node's text. `cracow_prices`: not applicable, it has one stage. |
+| Rail input row `title` | Pass: 3 and 7 rows, on the workflow and on each stage. |
+| Icon state and ids | Pass: 7 views, each icon holds the information icon, none is red, and no id on a page repeats. |
+| Height and socket positions | Pass: on all 7 views, removing every icon span by script in the same page left x, y, width and height of each card, socket and rail row unchanged (delta 0 within 0.001 px). 42 cards, 116 sockets and 29 rail rows across the views, at fits from scale 0.622222 to 1. |
+| Press an icon without moving | Pass: on the 8 cards of the next row. No event frame, no `aria-pressed="true"`, canvas still 1248 px, card not moved. |
+| Drag from an icon | Pass: one `node_moved` frame each, `data-x`/`data-y` moved, and a reload kept them. `resolve` (480, 80) to (540, 122); `branch_name` (-280, 192) to (-219, 235); `worktree_name` on `create` (-280, 416) to (-220, 458); `inspect` (60, 300) to (156, 368) and `route` (440, 300) to (531, 364) at scale 0.622222; `normalize` (60, 144) to (140, 200); `rooms` (-200, 640) to (-124, 693); `estimate_price` (60, 80) to (120, 122). |
+
+Rail rows aren't draggable, so the press and drag rows don't apply to them. The two copies,
+`180523d4-069b-4d04-bccc-ee7678c7ab53` and `bc1c564d-87f5-4f12-a608-1f03a8ea360d`, were
+deleted through the UI with its confirmation, and their rows left the list after a reload. No
+`Walkthrough` draft is left, so a later seed isn't taken in by one.
+
+Limits: **a native tooltip's display is unverified.** A headless agent can read `title` but
+can't see the browser show it, so hovering one icon of each kind in a real browser remains a
+one-minute check for a person. A physical mouse or trackpad wasn't used, and keyboard and touch
+can't reach the text by design. Re-seeding after deleting real drafts wasn't walked, because no
+person's draft may be touched; `Seeds.run` on an empty table is covered by the LiveView tests,
+which don't establish it in a browser. A red icon wasn't walked here either, since the seeds
+hold none; the LiveView tests cover it.
