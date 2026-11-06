@@ -24,7 +24,8 @@ defmodule Domovoy.Catalog.Curated do
       },
       %{id: "github", name: "GitHub", app: :domovoy_github_plugin, prefix: "GitHub"},
       %{id: "linear", name: "Linear", app: :domovoy_linear_plugin, prefix: "Linear"},
-      %{id: "slack", name: "Slack", app: :domovoy_slack_plugin, prefix: "Slack"}
+      %{id: "slack", name: "Slack", app: :domovoy_slack_plugin, prefix: "Slack"},
+      %{id: "examples", name: "Examples", app: :domovoy, prefix: "Examples"}
     ]
   end
 
@@ -109,6 +110,21 @@ defmodule Domovoy.Catalog.Curated do
         module: DomovoyClaudeCodePlugin.Validator.SessionOptionsAreValid,
         description: "Refuses options a Claude session does not accept.",
         requires: ["options"]
+      },
+      %{
+        module: Domovoy.Examples.Cracow.Listing,
+        description: "Refuses a listing no flat in Kraków could match.",
+        requires: ["rooms", "bathrooms", "area", "floor", "district"]
+      },
+      %{
+        module: Domovoy.Examples.Cracow.RoomLayout,
+        description: "Refuses more bathrooms than rooms.",
+        requires: ["rooms", "bathrooms"]
+      },
+      %{
+        module: Domovoy.Examples.Cracow.AreaPolicy,
+        description: "Refuses an area over 300 square metres.",
+        requires: ["area"]
       }
     ]
   end
@@ -117,5 +133,7 @@ defmodule Domovoy.Catalog.Curated do
   The deciders a Decision may name.
   """
   @spec deciders() :: [module()]
-  def deciders, do: [DomovoyCore.Decider.Person]
+  def deciders do
+    [DomovoyCore.Decider.Person, Domovoy.Examples.Worktree.WorktreeRouteDecider]
+  end
 end

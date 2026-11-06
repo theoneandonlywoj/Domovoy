@@ -15,7 +15,7 @@ defmodule Domovoy.CatalogTest do
     test "reflect runners from Core and each installed plugin" do
       plugins = %{} |> Catalog.search() |> Enum.map(& &1.plugin) |> Enum.uniq() |> Enum.sort()
 
-      assert plugins == ["Claude Code", "Core", "Git", "Mise"]
+      assert plugins == ["Claude Code", "Core", "Examples", "Git", "Mise"]
     end
 
     test "hold the runner's contract and fields" do
@@ -72,7 +72,7 @@ defmodule Domovoy.CatalogTest do
 
   describe "plugins" do
     test "show installed plugins as not verified" do
-      for name <- ["Core", "Git", "Mise", "Claude Code"] do
+      for name <- ["Core", "Git", "Mise", "Claude Code", "Examples"] do
         assert %{installed?: true, verified?: false} = plugin(name)
       end
     end
@@ -167,9 +167,14 @@ defmodule Domovoy.CatalogTest do
   end
 
   describe "validators" do
-    test "curate every installed Git and Claude Code validator except the hidden runner's" do
+    test "curate every installed plugin and example validator except the hidden runner's" do
       installed =
-        for app <- [:domovoy_git_plugin, :domovoy_mise_plugin, :domovoy_claude_code_plugin],
+        for app <- [
+              :domovoy_git_plugin,
+              :domovoy_mise_plugin,
+              :domovoy_claude_code_plugin,
+              :domovoy
+            ],
             {:ok, modules} <- [:application.get_key(app, :modules)],
             module <- modules,
             Code.ensure_loaded?(module),
@@ -218,7 +223,10 @@ defmodule Domovoy.CatalogTest do
   end
 
   test "deciders are the curated list" do
-    assert ids(Catalog.deciders()) == ["DomovoyCore.Decider.Person"]
+    assert ids(Catalog.deciders()) == [
+             "DomovoyCore.Decider.Person",
+             "Domovoy.Examples.Worktree.WorktreeRouteDecider"
+           ]
   end
 
   defp behaviours(module) do

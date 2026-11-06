@@ -40,6 +40,10 @@ defmodule Domovoy.Composer.NoExecutionTest do
     assert {DomovoyClaudeCodePlugin.Runner.AskClaude, :run, 2} in targets
     assert {DomovoyGitPlugin.Validator.RemotePresent, :validate, 2} in targets
     assert {DomovoyClaudeCodePlugin.Reflect.Runner.CollectTranscripts, :run, 2} in targets
+    assert {Domovoy.Examples.Cracow.Normalize, :run, 2} in targets
+    assert {Domovoy.Examples.Cracow.Float, :cast, 2} in targets
+    assert {Domovoy.Examples.Cracow.RoomLayout, :validate, 2} in targets
+    assert {Domovoy.Examples.Worktree.WorktreeRouteDecider, :decide, 3} in targets
   end
 
   test "a call from the subject is caught, so a silent trace can't pass" do
