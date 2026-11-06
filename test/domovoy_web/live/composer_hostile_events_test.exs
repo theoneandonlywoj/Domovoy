@@ -240,6 +240,34 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
   end
 
+  test "save_input ignores a metadata param and keeps the stored description", %{conn: conn} do
+    document =
+      edit_all(scenario_a(), [
+        {:put_input, "floor", %{"type" => "DomovoyCore.Type.String"}},
+        {:set_description, {:input, "floor"}, "Stored."}
+      ])
+
+    draft = draft!(document)
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/prepare")
+
+    render_hook(view, "save_input", %{
+      "input" => %{
+        "name" => "floor",
+        "type" => "DomovoyCore.Type.String",
+        "required" => "true",
+        "metadata" => %{"description" => "Other."}
+      }
+    })
+
+    refute has_element?(view, "#rejection")
+
+    assert saved_document(draft)["inputs"]["floor"] == %{
+             "type" => "DomovoyCore.Type.String",
+             "required" => true,
+             "metadata" => %{"description" => "Stored."}
+           }
+  end
+
   test "panel events with nothing open do nothing", %{conn: conn} do
     {draft, view} = open(conn)
     before = saved_document(draft)

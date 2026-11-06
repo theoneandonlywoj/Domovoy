@@ -310,6 +310,7 @@ defmodule Domovoy.Composer.Projection do
     %{
       name: name,
       dom_id: "node-#{dom_part(name)}",
+      description: Document.description(node),
       output_socket: output_socket(name),
       after_out_socket: after_out_socket(name),
       after_in_socket: after_in_socket(name),
@@ -495,6 +496,7 @@ defmodule Domovoy.Composer.Projection do
       name: name,
       kind: vertex["kind"],
       dom_id: "vertex-#{dom_part(name)}",
+      description: Document.description(vertex),
       in_socket: after_in_socket(name),
       out_socket: if(vertex["kind"] == "stage", do: after_out_socket(name)),
       x: coordinate(context.document, ["layout", "workflow", name, "x"]),
@@ -593,7 +595,8 @@ defmodule Domovoy.Composer.Projection do
         socket: output_socket(name),
         type_label: Catalog.type_label(type),
         bound?: name in sources,
-        origin: "#{origin(document, name)} / #{Catalog.type_label(type)}"
+        origin: "#{origin(document, name)} / #{Catalog.type_label(type)}",
+        description: origin_description(document, name)
       }
     end
   end
@@ -630,6 +633,7 @@ defmodule Domovoy.Composer.Projection do
         socket: row.socket,
         connect_id: "#{row.dom_id}-connect",
         type_label: row.type_label,
+        description: row.description,
         row: row,
         issues: Map.get(row, :issues, []),
         x: x,
@@ -668,6 +672,16 @@ defmodule Domovoy.Composer.Projection do
     end
   end
 
+  # A choice input has no description.
+  @spec origin_description(document :: Document.t(), name :: String.t()) ::
+          {:ok, String.t()} | :absent | :malformed
+  defp origin_description(document, name) do
+    case Enum.find(Document.all_nodes(document), &match?({_stage, ^name, _node}, &1)) do
+      {_stage, _name, node} -> Document.description(node)
+      nil -> :absent
+    end
+  end
+
   # Inputs
 
   @spec input_row(context :: context(), entry :: {String.t(), map()}) :: map()
@@ -675,6 +689,7 @@ defmodule Domovoy.Composer.Projection do
     %{
       name: name,
       dom_id: "input-#{dom_part(name)}",
+      description: Document.description(input),
       socket: output_socket(name),
       type_label: Catalog.type_label(input["type"]),
       required: Map.get(input, "required", false),

@@ -114,6 +114,54 @@ defmodule Domovoy.Composer.DocumentTest do
     assert Map.fetch!(reloaded["inputs"]["null"], "default") == nil
   end
 
+  describe "description/1" do
+    test "gives the text" do
+      assert Document.description(%{"metadata" => %{"description" => "Text."}}) == {:ok, "Text."}
+    end
+
+    test "is absent with no metadata, or metadata with no description" do
+      assert Document.description(%{}) == :absent
+      assert Document.description(%{"metadata" => %{}}) == :absent
+      assert Document.description(%{"metadata" => %{"other" => 1}}) == :absent
+    end
+
+    test "is malformed for anything else" do
+      for metadata <- [
+            1,
+            "text",
+            ["description"],
+            nil,
+            %{"description" => 1},
+            %{"description" => nil},
+            %{"description" => "   "}
+          ] do
+        assert Document.description(%{"metadata" => metadata}) == :malformed, inspect(metadata)
+      end
+    end
+
+    test "a new node, stage and decision hold no metadata" do
+      for item <- [Document.new_node("x"), Document.stage(), Document.decision()] do
+        refute is_map_key(item, "metadata")
+      end
+    end
+
+    test "malformed metadata is no shape issue on any item" do
+      document = ComposerFixtures.scenario_a()
+
+      for path <- [
+            ["vertices", "prepare", "nodes", "ask_claude"],
+            ["vertices", "prepare"],
+            ["vertices", "review"],
+            ["inputs", "prompt"]
+          ],
+          metadata <- [1, "text", ["x"], nil, %{"description" => 1}, %{"description" => "   "}] do
+        malformed = put_in(document, path ++ ["metadata"], metadata)
+
+        assert Document.shape_issues(malformed) == [], inspect({path, metadata})
+      end
+    end
+  end
+
   defp node_of(runner, inputs, waits \\ []) do
     %{
       "runner" => runner,

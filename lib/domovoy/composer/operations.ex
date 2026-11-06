@@ -212,6 +212,13 @@ defmodule Domovoy.Composer.Operations do
     end
   end
 
+  defp apply_op(document, {:set_description, target, text}) when is_binary(text) do
+    with {:ok, path} <- metadata_path(document, target),
+         :ok <- check_description(text) do
+      {:ok, put_in(document, path, %{"description" => text}), :definition}
+    end
+  end
+
   # Layout
 
   defp apply_op(document, {:move, scope, name, x, y})
@@ -239,7 +246,8 @@ defmodule Domovoy.Composer.Operations do
     with :ok <- check_name(name),
          {:ok, input} <- normalize_input(attrs),
          :ok <- check_free_input_name(document, name, input["type"]) do
-      {:ok, put_in(document, ["inputs", name], input), :definition}
+      {:ok, put_in(document, ["inputs", name], keep_metadata(document["inputs"][name], input)),
+       :definition}
     end
   end
 
@@ -330,6 +338,57 @@ defmodule Domovoy.Composer.Operations do
   end
 
   defp apply_op(_document, _op), do: {:error, invalid_params()}
+
+  # Descriptions
+
+  @spec metadata_path(document :: Document.t(), target :: term()) ::
+          {:ok, [String.t()]} | {:error, Issue.t()}
+  defp metadata_path(document, {:node, stage, name}) when binaries(stage, name) do
+    with {:ok, _node} <- fetch_node(document, stage, name) do
+      {:ok, node_path(stage, name, "metadata")}
+    end
+  end
+
+  defp metadata_path(document, {:vertex, name}) when is_binary(name) do
+    with {:ok, _vertex} <- fetch_vertex(document, name) do
+      {:ok, ["vertices", name, "metadata"]}
+    end
+  end
+
+  defp metadata_path(document, {:input, name}) when is_binary(name) do
+    if is_map_key(document["inputs"], name) do
+      {:ok, ["inputs", name, "metadata"]}
+    else
+      {:error, unknown(:unknown_input, "input")}
+    end
+  end
+
+  defp metadata_path(_document, _target), do: {:error, invalid_params()}
+
+  # Refuses what `Document.description/1` calls malformed. Never echoes the text.
+  @spec check_description(text :: String.t()) :: :ok | {:error, Issue.t()}
+  defp check_description(text) do
+    if String.trim(text) == "", do: {:error, invalid_params()}, else: :ok
+  end
+
+  @spec keep_metadata(current :: map() | nil, input :: map()) :: map()
+  defp keep_metadata(%{"metadata" => metadata}, input), do: Map.put(input, "metadata", metadata)
+  defp keep_metadata(_current, input), do: input
+
+  # A description says what the runner does, so another runner makes it stale.
+  @spec drop_stale_metadata(
+          document :: Document.t(),
+          stage :: String.t(),
+          name :: String.t(),
+          node :: map(),
+          runner :: map()
+        ) :: Document.t()
+  defp drop_stale_metadata(document, _stage, _name, %{"runner" => same}, %{id: same}),
+    do: document
+
+  defp drop_stale_metadata(document, stage, name, _node, _runner) do
+    update_in(document, ["vertices", stage, "nodes", name], &Map.delete(&1, "metadata"))
+  end
 
   # Lookups
 
@@ -913,6 +972,7 @@ defmodule Domovoy.Composer.Operations do
     swapped
     |> put_in(node_path(stage, name, "inputs"), inputs)
     |> put_in(node_path(stage, name, "validators"), validators)
+    |> drop_stale_metadata(stage, name, node, runner)
   end
 
   @spec input_kept?(

@@ -89,6 +89,66 @@ defmodule Domovoy.Composer.ExportTest do
     end
   end
 
+  describe "descriptions" do
+    @items [
+      ["vertices", "prepare", "nodes", "ask_claude"],
+      ["vertices", "prepare"],
+      ["vertices", "review"],
+      ["inputs", "prompt"]
+    ]
+
+    defp built_metadata(workflow) do
+      prepare = workflow.vertices["prepare"]
+
+      [
+        prepare.graph.nodes_by_name["ask_claude"].metadata,
+        prepare.metadata,
+        workflow.vertices["review"].metadata
+      ]
+    end
+
+    test "export on nodes, stages and decisions and keep the root; inputs don't change" do
+      document = scenario_a()
+      plain = valid!(document)
+
+      described =
+        edit_all(document, [
+          {:set_description, {:node, "prepare", "ask_claude"}, "Asks."},
+          {:set_description, {:vertex, "prepare"}, "Prepares."},
+          {:set_description, {:vertex, "review"}, "Reviews."},
+          {:set_description, {:input, "prompt"}, "The prompt."}
+        ])
+
+      %{workflow: workflow, fingerprint: fingerprint} = valid!(described)
+
+      assert fingerprint == plain.fingerprint
+
+      assert built_metadata(workflow) == [
+               %{"description" => "Asks."},
+               %{"description" => "Prepares."},
+               %{"description" => "Reviews."}
+             ]
+
+      assert workflow.inputs == plain.workflow.inputs
+      assert workflow.metadata == %{"domovoy_editor" => document["layout"]}
+    end
+
+    test "malformed metadata stays out of Core, and never moves the root" do
+      document = scenario_a()
+      plain = valid!(document)
+
+      for path <- @items,
+          metadata <- [1, "text", ["x"], nil, %{"description" => 1}, %{"description" => "   "}] do
+        %{workflow: workflow, fingerprint: fingerprint} =
+          valid!(put_in(document, path ++ ["metadata"], metadata))
+
+        assert fingerprint == plain.fingerprint, inspect({path, metadata})
+        assert built_metadata(workflow) == [%{}, %{}, %{}], inspect({path, metadata})
+        assert workflow.inputs == plain.workflow.inputs, inspect({path, metadata})
+      end
+    end
+  end
+
   describe "literals" do
     test "a Path exports unchanged" do
       document =

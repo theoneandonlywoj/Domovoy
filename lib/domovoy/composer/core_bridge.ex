@@ -5,7 +5,8 @@ defmodule Domovoy.Composer.CoreBridge do
   Everything resolves through `Domovoy.Catalog`. A binding and a literal both take
   the type their field declares, whatever the source gives, so an Any field binds
   as Any. The layout travels in the workflow's metadata, which is outside the
-  fingerprint.
+  fingerprint. So does a valid description, in its node's, stage's or decision's
+  metadata; an input's stays in the document.
 
   An issue's message is built from document names, never from an exception, because
   some Core raises echo values.
@@ -129,7 +130,9 @@ defmodule Domovoy.Composer.CoreBridge do
 
     with {:ok, nodes} <- map_ok(Enum.sort(stage["nodes"]), &node(name, &1)),
          {:ok, graph} <- guarded(target, fn -> Graph.new(nodes) end) do
-      guarded(target, fn -> Stage.new(%{name: name, graph: graph, next: stage["next"]}) end)
+      guarded(target, fn ->
+        Stage.new(%{name: name, graph: graph, next: stage["next"], metadata: metadata(stage)})
+      end)
     end
   end
 
@@ -141,7 +144,8 @@ defmodule Domovoy.Composer.CoreBridge do
         name: name,
         prompt: decision["prompt"],
         decider: decider,
-        choices: Enum.map(decision["choices"], &choice/1)
+        choices: Enum.map(decision["choices"], &choice/1),
+        metadata: metadata(decision)
       })
     end)
   end
@@ -192,9 +196,19 @@ defmodule Domovoy.Composer.CoreBridge do
         after: node["after"],
         validators: Enum.map(node["validators"], &validator_module/1),
         retry: retry(node["retry"]),
-        store?: node["store"]
+        store?: node["store"],
+        metadata: metadata(node)
       })
     end)
+  end
+
+  # Core doesn't validate metadata, so only a valid description reaches it.
+  @spec metadata(item :: map()) :: %{optional(String.t()) => String.t()}
+  defp metadata(item) do
+    case Document.description(item) do
+      {:ok, text} -> %{"description" => text}
+      _absent_or_malformed -> %{}
+    end
   end
 
   @spec declared(runner :: map(), id :: String.t()) :: map()

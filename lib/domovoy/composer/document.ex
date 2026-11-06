@@ -19,6 +19,9 @@ defmodule Domovoy.Composer.Document do
   `%{"max_attempts" => n}`. An absent `"default"` and `"default" => nil` stay
   distinct. A binding holds only the source name; its type comes from the field's
   declaration at build.
+
+  A node, stage, decision or input may also hold
+  `"metadata" => %{"description" => "Looks up the worktree."}`, which `description/1` reads.
   """
 
   alias Domovoy.Composer.Issue
@@ -117,6 +120,21 @@ defmodule Domovoy.Composer.Document do
       {decision, choice["name"], key, type}
     end
   end
+
+  @doc """
+  What an item's metadata holds as a description. Malformed metadata isn't a shape
+  issue, because an optional tooltip mustn't stop a draft opening. A blank text counts
+  as malformed.
+  """
+  @spec description(item :: map()) :: {:ok, String.t()} | :absent | :malformed
+  def description(%{"metadata" => %{"description" => text}}) when is_binary(text) do
+    if String.trim(text) == "", do: :malformed, else: {:ok, text}
+  end
+
+  def description(%{"metadata" => %{"description" => _other}}), do: :malformed
+  def description(%{"metadata" => metadata}) when is_map(metadata), do: :absent
+  def description(%{"metadata" => _other}), do: :malformed
+  def description(_item), do: :absent
 
   @doc """
   Whether every string in a term is valid UTF-8 without NUL. Postgres rejects NUL

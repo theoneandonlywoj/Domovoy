@@ -339,6 +339,7 @@ defmodule DomovoyWeb.ComposerComponents do
       ></span>
       <div class="flex items-center gap-1">
         <span class="min-w-0 flex-1 truncate font-medium">{@input.name}</span>
+        <.description_icon id={"#{@input.dom_id}-description"} description={@input.description} />
         <.type_chip label={@input.type_label} />
       </div>
       <div class="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted">
@@ -733,6 +734,7 @@ defmodule DomovoyWeb.ComposerComponents do
           <span class="block truncate font-semibold">{@card.name}</span>
           <span class="block text-xs text-muted">{kind_label(@card.kind)}</span>
         </button>
+        <.description_icon id={"#{@card.dom_id}-description"} description={@card.description} />
         <span
           :if={@card.start?}
           id={"#{@card.dom_id}-start"}
@@ -849,6 +851,7 @@ defmodule DomovoyWeb.ComposerComponents do
             {@card.label}
           </span>
         </button>
+        <.description_icon id={"#{@card.dom_id}-description"} description={@card.description} />
         <span
           :if={@card.issue_count > 0}
           id={"#{@card.dom_id}-issue-count"}
@@ -941,6 +944,7 @@ defmodule DomovoyWeb.ComposerComponents do
       ></span>
       <div class="flex items-center gap-1">
         <span class="min-w-0 flex-1 truncate text-sm font-medium">{@source.name}</span>
+        <.description_icon id={"#{@source.dom_id}-description"} description={@source.description} />
         <.type_chip label={@source.type_label} />
       </div>
       <div class="mt-1 flex items-center gap-1 text-muted">
@@ -1028,6 +1032,31 @@ defmodule DomovoyWeb.ComposerComponents do
     ~H"""
     <span class="soft-chip shrink-0 px-1.5 py-0.5 text-[0.6875rem]">
       {@label}
+    </span>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :description, :any, required: true
+
+  defp description_icon(%{description: :absent} = assigns), do: ~H""
+
+  defp description_icon(%{description: {:ok, text}} = assigns) do
+    assigns = assign(assigns, text: text)
+
+    ~H"""
+    <span id={@id} role="img" aria-label={@text} title={@text} class="flex shrink-0 text-muted">
+      <.icon name="hero-information-circle" class="size-4" />
+    </span>
+    """
+  end
+
+  defp description_icon(%{description: :malformed} = assigns) do
+    assigns = assign(assigns, text: "This description can't be read.")
+
+    ~H"""
+    <span id={@id} role="img" aria-label={@text} title={@text} class="flex shrink-0 text-error">
+      <.icon name="hero-information-circle" class="size-4" />
     </span>
     """
   end

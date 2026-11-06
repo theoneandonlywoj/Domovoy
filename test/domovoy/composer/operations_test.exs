@@ -543,6 +543,116 @@ defmodule Domovoy.Composer.OperationsTest do
     end
   end
 
+  describe "set_description" do
+    test "writes to a node, stage, decision and input as a definition edit" do
+      document = scenario_a()
+      metadata = %{"description" => "Text."}
+
+      for {target, path} <- [
+            {{:node, "prepare", "ask_claude"}, ["vertices", "prepare", "nodes", "ask_claude"]},
+            {{:vertex, "prepare"}, ["vertices", "prepare"]},
+            {{:vertex, "review"}, ["vertices", "review"]},
+            {{:input, "prompt"}, ["inputs", "prompt"]}
+          ] do
+        assert {:ok, updated, :definition} =
+                 Operations.edit(document, {:set_description, target, "Text."})
+
+        assert get_in(updated, path ++ ["metadata"]) == metadata
+        assert Document.description(get_in(updated, path)) == {:ok, "Text."}
+      end
+    end
+
+    test "an unknown item is refused" do
+      document = scenario_a()
+
+      refused(document, {:set_description, {:node, "prepare", "nope"}, "Text."}, :unknown_node)
+      refused(document, {:set_description, {:vertex, "nope"}, "Text."}, :unknown_vertex)
+      refused(document, {:set_description, {:input, "nope"}, "Text."}, :unknown_input)
+    end
+
+    test "a wrong target and a blank text are refused, without echoing the text" do
+      document = scenario_a()
+
+      for op <- [
+            {:set_description, {:vertex, 1}, @sentinel},
+            {:set_description, {:node, 1, 2}, @sentinel},
+            {:set_description, {:input, 1}, @sentinel},
+            {:set_description, {:other, "x"}, @sentinel},
+            {:set_description, {:vertex, "prepare"}, 1},
+            {:set_description, {:vertex, "prepare"}, ""},
+            {:set_description, {:vertex, "prepare"}, "   "}
+          ] do
+        issue = refused(document, op, :invalid_params)
+        refute issue.message =~ @sentinel
+      end
+    end
+
+    test "put_input keeps the description when the type changes" do
+      document = described_input()
+
+      assert {:ok, updated, :definition} =
+               Operations.edit(document, {:put_input, "floor", %{"type" => @any}})
+
+      assert updated["inputs"]["floor"] == %{
+               "type" => @any,
+               "required" => false,
+               "metadata" => %{"description" => "Text."}
+             }
+    end
+
+    test "put_input saving the same input is no edit" do
+      document = described_input()
+
+      assert {:ok, ^document, :none} =
+               Operations.edit(document, {:put_input, "floor", %{"type" => @string}})
+    end
+
+    test "put_input refuses a metadata attr" do
+      refused(
+        described_input(),
+        {:put_input, "floor", %{"type" => @string, "metadata" => %{"description" => "Other."}}},
+        :invalid_params
+      )
+    end
+
+    test "rename_node keeps it" do
+      document = edit_all(scenario_a(), [described_resolve()])
+
+      updated = edit_all(document, [{:rename_node, "prepare", "resolve_worktree", "lookup"}])
+
+      assert Document.description(node_at(updated, "prepare", "lookup")) == {:ok, "Text."}
+    end
+
+    test "replace_runner to another runner clears it" do
+      document = edit_all(scenario_a(), [described_resolve()])
+
+      updated = edit_all(document, [{:replace_runner, "prepare", "resolve_worktree", @detect}])
+
+      refute is_map_key(node_at(updated, "prepare", "resolve_worktree"), "metadata")
+    end
+
+    test "replace_runner to the same runner keeps it, as no edit" do
+      document = edit_all(scenario_a(), [described_resolve()])
+
+      assert {:ok, ^document, :none} =
+               Operations.edit(
+                 document,
+                 {:replace_runner, "prepare", "resolve_worktree", @resolve}
+               )
+    end
+
+    defp described_input do
+      edit_all(Document.new("w"), [
+        {:put_input, "floor", %{"type" => @string}},
+        {:set_description, {:input, "floor"}, "Text."}
+      ])
+    end
+
+    defp described_resolve do
+      {:set_description, {:node, "prepare", "resolve_worktree"}, "Text."}
+    end
+  end
+
   describe "placement" do
     # The widest cards, and the room a route's curve needs beside each of the two.
     @vertex_width 280
@@ -1219,6 +1329,13 @@ defmodule Domovoy.Composer.OperationsTest do
       assert {:ok, ^moved, :none} = Operations.edit(moved, op)
     end
 
+    test "a second identical description returns :none with no diff" do
+      op = {:set_description, {:vertex, "prepare"}, "Text."}
+
+      assert {:ok, described, :definition} = Operations.edit(scenario_a(), op)
+      assert {:ok, ^described, :none} = Operations.edit(described, op)
+    end
+
     test "fixture building is repeatable" do
       assert scenario_a() == scenario_a()
     end
@@ -1261,7 +1378,11 @@ defmodule Domovoy.Composer.OperationsTest do
         {:put_decision, random, %{}},
         {:put_decision, "review", %{"decider" => random}},
         {:put_choice, random, %{}},
-        {:remove_choice, "review", random}
+        {:remove_choice, "review", random},
+        {:set_description, {:node, random, "ask_claude"}, "x"},
+        {:set_description, {:node, "prepare", random}, "x"},
+        {:set_description, {:vertex, random}, "x"},
+        {:set_description, {:input, random}, "x"}
       ]
 
       for op <- ops do
@@ -1325,6 +1446,8 @@ defmodule Domovoy.Composer.OperationsTest do
           {:add_stage, bad},
           {:add_node, "prepare", @detect, bad},
           {:set_validators, "prepare", "ask_claude", [bad]},
+          {:set_description, {:vertex, "prepare"}, bad},
+          {:set_description, {:input, bad}, "text"},
           {:put_choice, "review",
            %{
              "name" => "c",

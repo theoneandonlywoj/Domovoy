@@ -295,6 +295,81 @@ defmodule Domovoy.Composer.ProjectionTest do
     end
   end
 
+  describe "descriptions" do
+    defp described_sources do
+      edit_all(sources_document(), [
+        {:set_description, {:node, "main", "made"}, "Made."},
+        {:set_description, {:vertex, "second"}, "Second."},
+        {:set_description, {:input, "alpha"}, "Alpha."}
+      ])
+    end
+
+    test "reach a stage's cards, rows and source nodes of both kinds" do
+      main = Projection.stage_view(described_sources(), "main")
+      second = Projection.stage_view(described_sources(), "second")
+
+      assert card(main, "made").description == {:ok, "Made."}
+      assert card(main, "spare").description == :absent
+      assert Enum.find(second.inputs, &(&1.name == "alpha")).description == {:ok, "Alpha."}
+      assert Enum.find(second.inputs, &(&1.name == "zeta")).description == :absent
+      assert source(second, "alpha").description == {:ok, "Alpha."}
+      assert source(second, "made").description == {:ok, "Made."}
+      assert source(second, "zeta").description == :absent
+    end
+
+    test "reach the workflow's vertex cards and input rows" do
+      document =
+        edit_all(described_sources(), [
+          {:add_decision, "check"},
+          {:set_description, {:vertex, "check"}, "Check."}
+        ])
+
+      view = Projection.workflow_view(document)
+
+      assert vertex(view, "second").description == {:ok, "Second."}
+      assert vertex(view, "check").description == {:ok, "Check."}
+      assert vertex(view, "main").description == :absent
+      assert Enum.find(view.inputs, &(&1.name == "alpha")).description == {:ok, "Alpha."}
+    end
+
+    test "a choice input as a source has none" do
+      document =
+        edit_all(two_stages(), [
+          {:put_choice, "review",
+           %{
+             "name" => "go",
+             "description" => "Go on",
+             "target" => ["run", "after_review"],
+             "inputs" => %{"note" => @string}
+           }},
+          {:add_node, "after_review", @resolve, "again"},
+          {:bind, "after_review", "again", "worktree_name", "note", replace_literal: false}
+        ])
+
+      assert document
+             |> Projection.stage_view("after_review")
+             |> source("note")
+             |> Map.get(:description) ==
+               :absent
+    end
+
+    test "malformed metadata projects as :malformed without raising" do
+      document =
+        sources_document()
+        |> put_in(["vertices", "main", "nodes", "made", "metadata"], 1)
+        |> put_in(["vertices", "second", "metadata"], "text")
+        |> put_in(["inputs", "alpha", "metadata"], %{"description" => "   "})
+
+      main = Projection.stage_view(document, "main")
+      second = Projection.stage_view(document, "second")
+
+      assert card(main, "made").description == :malformed
+      assert source(second, "made").description == :malformed
+      assert source(second, "alpha").description == :malformed
+      assert vertex(Projection.workflow_view(document), "second").description == :malformed
+    end
+  end
+
   describe "issue_rows/3 on the workflow" do
     test "a choice issue selects its decision and focuses its route" do
       document =
