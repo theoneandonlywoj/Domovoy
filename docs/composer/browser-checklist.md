@@ -154,7 +154,8 @@ the theme looks on a physical display.
 In `screenshots/`: `02-mid-drag`, `04-preview`, `05-hover-refused`, `06-rejection`,
 `07-hover-fits`, `09-picker`, `10-after-hover`, `12-confirm-literal`, `13-hyphens`,
 `14-workflow`, `15-stage-walked`, `20-home`, `21-stage-mid-connect`, `22-dialog`,
-`23-draft-list`. `14` and `20` onward show the dark theme; the rest predate it.
+`23-draft-list`, `34-cracow-stage-source-nodes`. `14` and `20` onward show the dark theme; the
+rest predate it.
 
 ## Contextual inspector and Issues/Tools — phase 1, 2026-11-05
 
@@ -241,3 +242,80 @@ node/choice/relationship issue focus or cross-level navigation, replacement
 confirmation by Replace, workflow wire measurements, warning-producing clear
 preview focus, or physical-device checks. Earlier observations remain historical;
 the focused automated tests do not establish these unobserved browser claims.
+
+## Canvas auto-fit — phase 1, 2026-11-06
+
+Fresh observations against this phase on port 4010, headless Chrome 156 at 1600x1000
+through CDP, with a temporary driver outside the repo. Pointer press/move/release, wheel and Escape
+were trusted browser events. The slider was set by script with the browser's own `input`
+event. The node and draft forms were filled and submitted by script. Seeded drafts were
+only observed; the mutating rows used a disposable draft created and deleted through the
+UI. No page exception was observed. Earlier results above are historical: the "Each level
+has its own view" row's initial view is now a fit.
+
+The seeded facts held: `Create a worktree` has five workflow vertices reaching x 1580, and
+`Cracow house price` has a five-node `estimate_price` stage reaching x 900.
+
+| Check | Fresh result |
+|---|---|
+| `create_worktree` workflow opens fitted | Pass: all 5 `article[data-node]` rects inside `#stage-canvas`, 100%, slider 100, scale 0.622222. |
+| `estimate_price` stage opens fitted | Pass: all 5 rects inside, 100%, slider 100, scale 0.965517. |
+| Slider to max, then to 25 | Pass: workflow max 200 gives scale 1.24444, stage max 200 gives 1.93103; 25 shows 25% on both, true scale 0.155556 and 0.241379. |
+| Route wires at the fitted scale | Pass: both ends of all 5 workflow wires measure 0.00 px from socket centres, fitted and after Ctrl+wheel. |
+| Ctrl+wheel at a fit | Pass: 115%, 125%, 145%, 125%: each a 5% step of the fit. |
+| Select and open a list on stage `inspect` | Pass: selecting `worktree_name` and opening its optional list (card 207 to 255 px tall) left `translate(237px, 305.5px) scale(1)` and 100% unchanged. |
+| Reset with the inspector open | Pass: 100%, every card inside the 848 px canvas, scale 0.871671, which is the expected re-measure of the narrower canvas. |
+| Pan, leave the level and come back | Pass: panned to `translate(327px, 360.5px)`; the workflow opened at its own fit; the stage returned to its fresh `translate(237px, 305.5px) scale(1)`. |
+| One runner | Pass: disposable draft on load, scale exactly 1, 100%, translated to `translate(404px, 258.5px)`. |
+| Card drag at a fit that isn't a 5% step | Pass: at scale 0.7128712871287128, a (97, 61) px drag saved (+136, +86), against 136.07 and 85.57 expected; transform and 100% unchanged. |
+| Wire and preview wire at that fit | Pass: the value wire's ends measure 0.00 px after the drag. The preview starts 0.00 px from its socket, ends 0.00 px from the pointer in the open and 0.00 px from the field socket on hover. Escape removes it, with the transform unchanged. |
+| Fit below 0.5 | Pass: scale 0.439829, slider max 230, and the slider at 230 gives true scale 1.01161, 230%. |
+
+The disposable draft `b6bb0ff1-1939-4577-9547-5234b53b2b26` was deleted through the UI, and
+its row left the list.
+
+Limits: a physical mouse or trackpad wasn't used, and a pinch was simulated as Ctrl+wheel.
+The fit at the floor of 0.1, and a page that loads its fonts late, weren't walked in a
+browser; the floor is covered by the `fitView` unit tests, which don't establish how it
+looks. Resizing the window after a fit wasn't driven: the hook test shows the resize
+callback leaves the view and fit alone, and the selection row above shows it for the
+inspector's width change.
+
+## Stage source nodes — phase 2, 2026-11-06
+
+Fresh observations against this phase on port 4010, headless Chrome 156 at 1600x1000
+through CDP, with a temporary driver outside the repo. Pointer press/move/release and clicks
+were trusted browser events. The draft, vertex, input and node forms were filled and
+submitted by script, and buttons pressed by script. Seeded drafts were only observed; the
+mutating rows used a disposable draft created and deleted through the UI. Each wire was
+sampled at 200 points with `getPointAtLength`, and its ends measured from its socket centres.
+No page exception or console error was observed. Earlier results above are historical: where
+they name an input's socket on the rail, on a stage it is now on the input's node.
+
+The seeded facts held: `Cracow house price` stage `estimate_price` has seven inputs, each
+bound once, and `Create a worktree` stage `sync` reads `resolve` from two fields.
+
+| Check | Fresh result |
+|---|---|
+| `estimate_price` input wires | Pass: 7 source nodes, 7 input wires, 0 of 200 points outside `#stage-canvas` on each, both ends 0.00 px from their sockets. The other 7 wires measure the same. |
+| `estimate_price` fit | Pass: all 12 `article[data-node]` rects inside the canvas, 100%, slider 100, scale 0.746667, every source node left of the leftmost runner. |
+| `estimate_price` overlap | Pass: no two source nodes overlap; each is 64 px tall under the 112 px row step. |
+| `sync` earlier source | Pass: `#source-resolve` exists, and its 2 wires have 0 of 200 points outside, both ends 0.00 px. |
+| Position per stage | Pass: `topic` dragged on `first` from (-280, 80) to (-310, 190); on `second` it stayed at (-280, 192). |
+| Undo, then reload | Pass: back on `first`, Undo restored (-280, 80). Dragged again to (-306, 172), a reload kept it. |
+| After handle dropped on a source node | Pass: no console error, no `add_after` frame, no `data-drop-hover` while over it or after. |
+| Value wire dropped on a source node | Pass: no `connect` or `open_picker` frame, no picker, no `data-drop-hover`. |
+| Click and double-click a source node | Pass: with `a` selected its select button stays pressed and the inspector stays; no select frame, no navigation. |
+| Drag from an unread row onto a field | Pass: `b`'s row socket onto `create.branch_name` sent one `connect`; `#source-b` appeared, and the row has no socket and no Connect to. |
+| The new wire after Reset | Pass: 0 of 200 points outside, both ends 0.00 px. |
+
+The disposable draft `b1afc54d-60cc-4416-81db-4f7290624755` was deleted through the UI, and its
+row left the list.
+
+Limits: nothing refits on an edit, which is accepted. A runner added to `second` opened outside
+the fitted view until the next fit: `create` was out of view after the Connect to that built the
+draft. The row-to-field check started from a fresh fit, and there `#source-b` and every other
+card were already in view before Reset, so the off-view state of a newly bound source wasn't
+seen. A physical mouse or trackpad wasn't used, the first-selection clipping of the right side
+wasn't measured, and a real keyboard walk of the moved Connect-to buttons wasn't run; their
+events are covered by the LiveView tests, which don't establish focus behaviour.
