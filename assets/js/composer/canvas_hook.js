@@ -6,7 +6,7 @@
 // The hook sits on the ignored wire layer because `pushEvent` locks its element, and
 // that lock must not cover the cards.
 import * as Drag from "./drag.js"
-import {cubicPath, MAX_ZOOM, MIN_ZOOM, socketPoint, worldBox, zoomAt} from "./geometry.js"
+import {cubicPath, socketPoint, worldBox, zoomAt} from "./geometry.js"
 import {escapeAction, isEditable, isUndo} from "./keys.js"
 import {initial, panBy, transform, wheel} from "./viewport.js"
 import {wirePaths} from "./wires.js"
@@ -54,7 +54,8 @@ export default {
       [this.composer, "contextmenu", () => this.cancelGesture()],
       [this.composer, "click", e => this.swallowClick(e), {capture: true}],
       [this.composer, "scroll", () => this.scheduleDraw(), {capture: true, passive: true}],
-      [this.canvas, "click", e => this.zoomControl(e)],
+      [this.canvas, "click", e => this.resetView(e)],
+      [this.canvas, "input", e => this.zoomSlider(e)],
       [this.canvas, "wheel", e => this.onWheel(e), {passive: false}],
       [this.canvas, "dblclick", e => this.openCard(e)],
       [window, "keydown", e => this.keyDown(e)],
@@ -138,11 +139,13 @@ export default {
 
   syncZoom() {
     const percent = this.canvas.querySelector("#canvas-zoom-percent")
-    const label = `${Math.round(this.view.zoom * 100)}%`
+    const value = String(Math.round(this.view.zoom * 100))
+    const label = `${value}%`
     if (percent && percent.textContent !== label) percent.textContent = label
-    for (const [action, disabled] of [["out", this.view.zoom <= MIN_ZOOM], ["in", this.view.zoom >= MAX_ZOOM]]) {
-      const button = this.canvas.querySelector(`[data-zoom-action="${action}"]`)
-      if (button) setAttr(button, "disabled", disabled ? "" : null)
+    const slider = this.canvas.querySelector("#canvas-zoom-slider")
+    if (slider) {
+      if (slider.value !== value) slider.value = value
+      setAttr(slider, "aria-valuetext", label)
     }
   },
 
@@ -392,17 +395,22 @@ export default {
     event.preventDefault()
   },
 
-  zoomControl(event) {
-    const button = event.target.closest("button[data-zoom-action]")
-    if (!button || !this.canvas.contains(button)) return
+  resetView(event) {
+    if (!event.target.closest("#canvas-zoom-reset")) return
     event.preventDefault()
     if (this.gesture) return
-    const action = button.dataset.zoomAction
-    if (action === "reset") this.view = initial()
-    else if (action === "in" || action === "out") {
+    this.view = initial()
+    this.sync()
+    this.scheduleDraw()
+  },
+
+  // Zooms at the canvas's centre. During a gesture, `sync` puts the slider back.
+  zoomSlider({target}) {
+    if (target.id !== "canvas-zoom-slider") return
+    if (!this.gesture) {
       const rect = this.canvas.getBoundingClientRect()
-      this.view = zoomAt(this.view, {x: rect.width / 2, y: rect.height / 2}, this.view.zoom * (action === "in" ? 1.25 : 1 / 1.25))
-    } else return
+      this.view = zoomAt(this.view, {x: rect.width / 2, y: rect.height / 2}, Number(target.value) / 100)
+    }
     this.sync()
     this.scheduleDraw()
   },

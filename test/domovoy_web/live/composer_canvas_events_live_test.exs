@@ -46,19 +46,15 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
 
       assert has_element?(
                view,
-               "#canvas-zoom-out[type='button'][aria-label='Zoom out'][data-zoom-action='out']"
+               "#canvas-zoom-slider[type='range'][min='25'][max='200'][step='5'][value='100']" <>
+                 "[aria-label='Canvas zoom level'][phx-update='ignore']"
              )
 
       assert has_element?(view, "#canvas-zoom-percent[aria-live='polite']", "100%")
 
       assert has_element?(
                view,
-               "#canvas-zoom-in[type='button'][aria-label='Zoom in'][data-zoom-action='in']"
-             )
-
-      assert has_element?(
-               view,
-               "#canvas-zoom-reset[type='button'][aria-label='Reset canvas view'][data-zoom-action='reset']"
+               "#canvas-zoom-reset[type='button'][aria-label='Reset canvas view']"
              )
 
       refute has_element?(view, "#stage-world #canvas-zoom")

@@ -184,77 +184,85 @@ test("a confirmation Escape leaves both covered pickers, Tools and selection alo
 function zoomCanvas() {
   const {state, event} = background()
   const output = {textContent: "100%"}
-  const controls = new Map(["in", "out", "reset"].map(action => [action, {
-    ...element({zoomAction: action}),
-    closest: () => controls.get(action),
-  }]))
-  state.canvas.querySelector = selector => selector === "#canvas-zoom-percent" ? output :
-    controls.get(selector.match(/data-zoom-action="(.*?)"/)?.[1])
+  const slider = {...element({}), id: "canvas-zoom-slider", value: "100"}
+  const reset = {...element({}), id: "canvas-zoom-reset", closest: () => reset}
+  state.canvas.querySelector = selector => ({"#canvas-zoom-percent": output, "#canvas-zoom-slider": slider})[selector]
   state.canvas.getBoundingClientRect = () => ({left: 30, top: 40, width: 800, height: 600})
-  const click = action => state.zoomControl({target: controls.get(action), preventDefault() {}})
-  return {state, event, output, controls, click}
+  const slide = percent => {
+    slider.value = String(percent)
+    state.zoomSlider({target: slider})
+  }
+  const clickReset = () => state.resetView({target: reset, preventDefault() {}})
+  return {state, event, output, slider, reset, slide, clickReset}
 }
 
-test("toolbar dispatch shares the bounded viewport, center anchor, percentage and disabled state", () => {
-  const {state, output, controls, click} = zoomCanvas()
+test("the slider sets the zoom at the canvas centre, and reset restores the view", () => {
+  const {state, output, slider, slide, clickReset} = zoomCanvas()
   const center = {x: 400, y: 300}
-  click("in")
+  slide(125)
   assert.equal(state.view.zoom, 1.25)
   assert.equal(output.textContent, "125%")
+  assert.equal(slider.getAttribute("aria-valuetext"), "125%")
   assert.deepEqual(screenToWorld(state.view, center), center)
   assert.equal(state.world.getAttribute("style"), "transform: translate(-100px, -75px) scale(1.25);")
-  click("out")
+  slide(100)
   assert.deepEqual(state.view, {x: 0, y: 0, zoom: 1})
-  for (let i = 0; i < 20; i++) click("in")
-  assert.equal(state.view.zoom, 2)
-  assert.equal(output.textContent, "200%")
-  assert.equal(controls.get("in").hasAttribute("disabled"), true)
-  assert.equal(controls.get("out").hasAttribute("disabled"), false)
-  for (let i = 0; i < 30; i++) click("out")
-  assert.equal(state.view.zoom, 0.25)
-  assert.equal(output.textContent, "25%")
-  assert.equal(controls.get("out").hasAttribute("disabled"), true)
-  assert.equal(controls.get("in").hasAttribute("disabled"), false)
-  click("reset")
+  slide(35)
+  assert.equal(state.view.zoom, 0.35)
+  assert.equal(output.textContent, "35%")
+  clickReset()
   assert.deepEqual(state.view, {x: 0, y: 0, zoom: 1})
   assert.equal(output.textContent, "100%")
+  assert.equal(slider.value, "100")
   assert.deepEqual(state.pushes, [])
   assert.equal(state.gesture, null)
 })
 
-test("wheel and patches keep toolbar state in sync; unchanged sync writes nothing", () => {
-  const {state, output, controls} = zoomCanvas()
+test("the slider ignores input events from other canvas controls", () => {
+  const {state} = zoomCanvas()
+  state.zoomSlider({target: {id: "node-title", value: "150"}})
+  assert.deepEqual(state.view, {x: 0, y: 0, zoom: 1})
+})
+
+test("wheel and patches keep the slider in sync; unchanged sync writes nothing", () => {
+  const {state, output, slider} = zoomCanvas()
   const event = {clientX: 130, clientY: 140, deltaX: 0, deltaY: -100, ctrlKey: true, preventDefault() {}}
   state.onWheel(event)
   const view = {...state.view}
-  assert.equal(output.textContent, `${Math.round(view.zoom * 100)}%`)
+  assert.equal(view.zoom, 1.2)
+  assert.equal(output.textContent, "120%")
+  assert.equal(slider.value, "120")
   assert.deepEqual(screenToWorld(view, {x: 100, y: 100}), {x: 100, y: 100})
   output.textContent = "100%" // ordinary server patch
   state.sync()
   assert.deepEqual(state.view, view)
-  assert.equal(output.textContent, `${Math.round(view.zoom * 100)}%`)
-  for (const el of [state.world, state.canvas, state.composer, ...controls.values()]) {
+  assert.equal(output.textContent, "120%")
+  for (const el of [state.world, state.canvas, state.composer, slider]) {
     el.setAttribute = el.removeAttribute = () => assert.fail("redundant attribute mutation")
   }
-  Object.defineProperty(output, "textContent", {get: () => `${Math.round(view.zoom * 100)}%`, set: () => assert.fail("redundant text mutation")})
+  Object.defineProperty(output, "textContent", {get: () => "120%", set: () => assert.fail("redundant text mutation")})
+  Object.defineProperty(slider, "value", {get: () => "120", set: () => assert.fail("redundant value mutation")})
   state.sync()
 })
 
-test("level changes reset the toolbar and view, including its translation", () => {
-  const {state, output, click} = zoomCanvas()
-  click("in")
+test("level changes reset the slider and view, including its translation", () => {
+  const {state, output, slider, slide} = zoomCanvas()
+  slide(125)
   state.world.dataset.level = "stage:main"
   state.sync()
   assert.deepEqual(state.view, {x: 0, y: 0, zoom: 1})
   assert.equal(output.textContent, "100%")
+  assert.equal(slider.value, "100")
 })
 
-test("toolbar and wheel leave every active gesture and its coordinate basis alone", () => {
+test("slider, reset and wheel leave every active gesture and its coordinate basis alone", () => {
   for (const kind of ["card", "wire", "pan"]) {
-    const {state, output, click} = zoomCanvas()
+    const {state, output, slider, slide, clickReset} = zoomCanvas()
     const gesture = {kind, pointerId: 1}
     state.gesture = gesture
-    for (const action of ["in", "out", "reset"]) click(action)
+    slide(150)
+    assert.equal(slider.value, "100")
+    clickReset()
     state.onWheel({ctrlKey: true, deltaY: -100, preventDefault() {}})
     assert.deepEqual(state.view, {x: 0, y: 0, zoom: 1})
     assert.equal(output.textContent, "100%")
@@ -263,9 +271,9 @@ test("toolbar and wheel leave every active gesture and its coordinate basis alon
   }
 })
 
-test("the mounted hook delegates toolbar clicks and removes the listener on destroy", () => {
+test("the mounted hook delegates slider input and reset clicks, and removes the listeners on destroy", () => {
   const previous = Object.fromEntries(["document", "window", "MutationObserver", "ResizeObserver"].map(key => [key, globalThis[key]]))
-  const {state, controls, output} = zoomCanvas()
+  const {state, slider, reset, output} = zoomCanvas()
   const listeners = []
   const removed = []
   for (const target of [state.canvas, state.composer]) {
@@ -281,13 +289,15 @@ test("the mounted hook delegates toolbar clicks and removes the listener on dest
   }
   state.handleEvent = state.draw = () => {}
   state.canvas.querySelector = (original => selector => selector === "#canvas-notice" ? {} : original(selector))(state.canvas.querySelector)
+  const delegated = name => listeners.find(({target, name: listened}) => target === state.canvas && listened === name)
   try {
     state.mounted()
-    const delegated = listeners.find(({target, name}) => target === state.canvas && name === "click")
-    assert.ok(delegated)
-    delegated.fn({target: controls.get("in"), preventDefault() {}})
+    slider.value = "125"
+    delegated("input").fn({target: slider})
     assert.equal(state.view.zoom, 1.25)
     assert.equal(output.textContent, "125%")
+    delegated("click").fn({target: reset, preventDefault() {}})
+    assert.equal(state.view.zoom, 1)
     state.destroyed()
     assert.deepEqual(removed, listeners)
   } finally {

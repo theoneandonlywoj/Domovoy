@@ -641,15 +641,18 @@ defmodule DomovoyWeb.ComposerComponents do
         data-canvas-control
         class="soft-panel absolute bottom-3 right-3 z-20 flex items-center gap-1 p-1.5 text-xs"
       >
-        <button
-          id="canvas-zoom-out"
-          type="button"
-          aria-label="Zoom out"
-          data-zoom-action="out"
-          class="soft-btn flex size-8 cursor-pointer items-center justify-center disabled:opacity-40"
-        >
-          <.icon name="hero-minus" class="size-4" />
-        </button>
+        <input
+          id="canvas-zoom-slider"
+          type="range"
+          min="25"
+          max="200"
+          step="5"
+          value="100"
+          aria-label="Canvas zoom level"
+          aria-valuetext="100%"
+          phx-update="ignore"
+          class="ml-1 h-8 w-36 cursor-pointer accent-[var(--color-primary)]"
+        />
         <output
           id="canvas-zoom-percent"
           aria-label="Canvas zoom percentage"
@@ -657,19 +660,9 @@ defmodule DomovoyWeb.ComposerComponents do
           class="min-w-12 text-center tabular-nums"
         >100%</output>
         <button
-          id="canvas-zoom-in"
-          type="button"
-          aria-label="Zoom in"
-          data-zoom-action="in"
-          class="soft-btn flex size-8 cursor-pointer items-center justify-center disabled:opacity-40"
-        >
-          <.icon name="hero-plus" class="size-4" />
-        </button>
-        <button
           id="canvas-zoom-reset"
           type="button"
           aria-label="Reset canvas view"
-          data-zoom-action="reset"
           class="soft-btn ml-1 cursor-pointer h-8 px-3"
         >
           Reset

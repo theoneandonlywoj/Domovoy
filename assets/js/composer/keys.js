@@ -1,7 +1,9 @@
 const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"])
 
+// A slider keeps focus after a drag but has no text to undo or escape from.
 export const isEditable = target =>
-  Boolean(target) && (EDITABLE_TAGS.has(target.tagName) || target.isContentEditable === true)
+  Boolean(target) && target.type !== "range" &&
+  (EDITABLE_TAGS.has(target.tagName) || target.isContentEditable === true)
 
 export const isUndo = event =>
   Boolean(event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z"

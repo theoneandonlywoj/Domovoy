@@ -6,6 +6,7 @@ test("text entry is editable and a button isn't", () => {
   for (const tagName of ["INPUT", "TEXTAREA", "SELECT"]) assert.equal(isEditable({tagName}), true)
   assert.equal(isEditable({tagName: "DIV", isContentEditable: true}), true)
   assert.equal(isEditable({tagName: "BUTTON"}), false)
+  assert.equal(isEditable({tagName: "INPUT", type: "range"}), false)
   assert.equal(isEditable(null), false)
 })
 
