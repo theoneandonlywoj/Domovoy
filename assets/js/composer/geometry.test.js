@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import {test} from "node:test"
-import {MAX_ZOOM, MIN_ZOOM, clampZoom, cubicPath, screenToWorld, snapZoom, socketPoint, zoomAt} from "./geometry.js"
+import {MAX_ZOOM, MIN_ZOOM, clampZoom, cubicPath, screenToWorld, sliderMax, snapZoom, socketPoint, zoomAt, zoomRange} from "./geometry.js"
 
 const view = {x: 30, y: -20, zoom: 0.5}
 
@@ -19,6 +19,14 @@ test("zoom snaps to the nearest 5% within its range", () => {
   assert.equal(snapZoom(1.03), 1.05)
   assert.equal(snapZoom(0.1), MIN_ZOOM)
   assert.equal(snapZoom(5), MAX_ZOOM)
+})
+
+test("the slider's top always reaches real size, in 5% steps, and never drops below 200", () => {
+  assert.equal(sliderMax(1), 200)
+  assert.equal(sliderMax(0.5), 200)
+  assert.equal(sliderMax(0.37), 275)
+  assert.ok(zoomRange(0.37).max >= 1)
+  assert.deepEqual(zoomRange(1), {min: MIN_ZOOM, max: MAX_ZOOM})
 })
 
 test("zoomAt keeps the world point under the pointer", () => {

@@ -4,10 +4,14 @@
 export const MIN_ZOOM = 0.25
 export const MAX_ZOOM = 2
 
-export const clampZoom = zoom => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
+// A fit is the true scale that shows as 100%. The slider's top always reaches real size.
+export const sliderMax = fit => Math.max(MAX_ZOOM * 100, Math.ceil(100 / fit / 5) * 5)
+export const zoomRange = (fit = 1) => ({min: fit * MIN_ZOOM, max: fit * sliderMax(fit) / 100})
 
-// The nearest level the zoom slider can show, in steps of 5%.
-export const snapZoom = zoom => clampZoom(Math.round(zoom * 20) / 20)
+export const clampZoom = (zoom, {min, max} = zoomRange()) => Math.min(max, Math.max(min, zoom))
+
+// The nearest level the zoom slider can show, in steps of 5% of the fit.
+export const snapZoom = (zoom, fit = 1) => clampZoom(Math.round((zoom / fit) * 20) / 20 * fit, zoomRange(fit))
 
 export const screenToWorld = (view, point) => ({
   x: (point.x - view.x) / view.zoom,
@@ -15,8 +19,8 @@ export const screenToWorld = (view, point) => ({
 })
 
 // Zooms keeping the world point under `point` where it is.
-export function zoomAt(view, point, zoom) {
-  const next = clampZoom(zoom)
+export function zoomAt(view, point, zoom, fit = 1) {
+  const next = clampZoom(zoom, zoomRange(fit))
   const world = screenToWorld(view, point)
   return {x: point.x - world.x * next, y: point.y - world.y * next, zoom: next}
 }

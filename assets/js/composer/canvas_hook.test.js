@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import {test} from "node:test"
 import hook from "./canvas_hook.js"
 import * as Drag from "./drag.js"
-import {screenToWorld} from "./geometry.js"
+import {screenToWorld, zoomRange} from "./geometry.js"
 
 const element = dataset => ({
   dataset,
@@ -13,7 +13,10 @@ const element = dataset => ({
   removeAttribute(name) { this.attrs.delete(name) },
   querySelectorAll: () => [],
   querySelector: () => null,
+  getBoundingClientRect: () => ({left: 0, top: 0, width: 800, height: 600}),
 })
+
+const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`)
 
 // The hook's own methods over just the DOM they touch, with a card already dragged.
 function dragged(level) {
@@ -181,8 +184,9 @@ test("a confirmation Escape leaves both covered pickers, Tools and selection alo
   }
 })
 
-function zoomCanvas() {
+function zoomCanvas({cards} = {}) {
   const {state, event} = background()
+  if (cards) state.world.querySelectorAll = () => cards
   const output = {textContent: "100%"}
   const slider = {...element({}), id: "canvas-zoom-slider", value: "100"}
   const reset = {...element({}), id: "canvas-zoom-reset", closest: () => reset}
@@ -303,4 +307,227 @@ test("the mounted hook delegates slider input and reset clicks, and removes the 
   } finally {
     Object.assign(globalThis, previous)
   }
+})
+
+// Far wider than the 800x600 canvas, so the fit is below 1.
+const wideCards = () => [
+  {dataset: {node: "a", x: "0", y: "0"}, style: {}, offsetWidth: 300, offsetHeight: 200},
+  {dataset: {node: "b", x: "2000", y: "0"}, style: {}, offsetWidth: 300, offsetHeight: 200},
+]
+
+// A hook through its real `mounted`, returning the observers' callbacks.
+function mountedCanvas(cards) {
+  const canvas = zoomCanvas({cards})
+  const {state} = canvas
+  const observers = []
+  for (const target of [state.canvas, state.composer]) {
+    target.addEventListener = target.removeEventListener = () => {}
+  }
+  const restore = Object.fromEntries(["document", "window", "MutationObserver", "ResizeObserver"].map(key => [key, globalThis[key]]))
+  globalThis.window = {addEventListener() {}, removeEventListener() {}}
+  globalThis.document = {getElementById: () => null, createElementNS: () => ({setAttribute() {}})}
+  globalThis.MutationObserver = class {observe() {} disconnect() {}}
+  globalThis.ResizeObserver = class {
+    constructor(callback) { observers.push(callback) }
+    observe() {}
+    disconnect() {}
+  }
+  state.el = {
+    closest: selector => ({"#composer": state.composer, "#stage-canvas": state.canvas, "#stage-world": state.world})[selector],
+    appendChild() {},
+  }
+  state.handleEvent = state.draw = () => {}
+  const query = state.canvas.querySelector
+  state.canvas.querySelector = selector => selector === "#canvas-notice" ? {} : query(selector)
+  // No view from the stubs: `mounted` has to make it.
+  state.view = undefined
+  state.moves = undefined
+  const finish = () => Object.assign(globalThis, restore)
+  return {...canvas, observers, finish}
+}
+
+test("mounting fits the cards before the first sync, and shows the fit as 100%", () => {
+  const {state, output, slider, finish} = mountedCanvas(wideCards())
+  try {
+    state.mounted()
+    assert.ok(state.fit < 1)
+    assert.equal(state.view.zoom, state.fit)
+    assert.ok(state.world.getAttribute("style").includes(`scale(${state.fit})`))
+    assert.equal(output.textContent, "100%")
+    assert.equal(slider.value, "100")
+  } finally {
+    finish()
+  }
+})
+
+test("a canvas resize redraws without refitting", () => {
+  const {state, observers, finish} = mountedCanvas(wideCards())
+  try {
+    state.mounted()
+    state.view = {...state.view, x: state.view.x + 40}
+    const view = {...state.view}
+    const fit = state.fit
+    state.canvas.getBoundingClientRect = () => ({left: 0, top: 0, width: 400, height: 300})
+    assert.equal(observers.length, 1)
+    observers[0]()
+    assert.deepEqual(state.view, view)
+    assert.equal(state.fit, fit)
+  } finally {
+    finish()
+  }
+})
+
+test("Reset re-measures rather than restoring an earlier fit", () => {
+  const cards = wideCards()
+  const {state, output, slide, clickReset} = zoomCanvas({cards})
+  clickReset()
+  const before = state.fit
+  assert.ok(before < 1)
+  assert.equal(output.textContent, "100%")
+  slide(150)
+  assert.equal(output.textContent, "150%")
+  cards[1].offsetWidth = 4000
+  clickReset()
+  assert.ok(state.fit < before)
+  assert.equal(state.view.zoom, state.fit)
+  assert.equal(output.textContent, "100%")
+})
+
+test("a level change fits its own cards and shows 100%", () => {
+  const {state, output, slide} = zoomCanvas({cards: wideCards()})
+  slide(150)
+  state.world.dataset.level = "stage:main"
+  state.sync()
+  assert.ok(state.fit < 1)
+  assert.equal(state.view.zoom, state.fit)
+  assert.equal(output.textContent, "100%")
+})
+
+test("the slider's 100 is the fitted scale", () => {
+  const {state, output, slide, clickReset} = zoomCanvas({cards: wideCards()})
+  clickReset()
+  const fit = state.fit
+  slide(150)
+  slide(100)
+  close(state.view.zoom, fit)
+  assert.equal(output.textContent, "100%")
+})
+
+// A fit that integer card sizes can't produce exactly.
+function fittedAt(fit) {
+  const canvas = zoomCanvas()
+  canvas.state.fit = fit
+  canvas.state.view = {x: 0, y: 0, zoom: fit}
+  return canvas
+}
+
+test("the slider's max is written before its value, which the browser would clamp", () => {
+  const {state, slider, output} = fittedAt(0.37)
+  const writes = []
+  const setAttribute = slider.setAttribute
+  slider.setAttribute = function (name, value) {
+    writes.push(name)
+    setAttribute.call(this, name, value)
+  }
+  let value = "100"
+  Object.defineProperty(slider, "value", {
+    get: () => value,
+    set(next) {
+      writes.push("value")
+      value = next
+    },
+  })
+  state.view = {...state.view, zoom: 0.37 * 2.75}
+  state.sync()
+  assert.equal(slider.getAttribute("max"), "275")
+  assert.equal(value, "275")
+  assert.ok(writes.indexOf("max") < writes.indexOf("value"), writes.join())
+  assert.equal(output.textContent, "275%")
+})
+
+test("the slider is relative to the fit: its top reaches real size, and 25 is a quarter of the fit", () => {
+  const {state, output, slide} = fittedAt(0.37)
+  slide(275)
+  assert.ok(state.view.zoom >= 1)
+  assert.equal(output.textContent, "275%")
+  slide(25)
+  close(state.view.zoom, 0.0925)
+  assert.equal(output.textContent, "25%")
+})
+
+test("the wheel lands on a percent step of the fit and stops at the fit's range", () => {
+  const {state, output} = fittedAt(0.37)
+  const wheelBy = deltaY => state.onWheel({clientX: 130, clientY: 140, deltaX: 0, deltaY, ctrlKey: true, preventDefault() {}})
+  wheelBy(-100)
+  const percent = (state.view.zoom / 0.37) * 100
+  close(percent, Math.round(percent / 5) * 5)
+  assert.equal(output.textContent, `${Math.round(percent)}%`)
+  for (let i = 0; i < 50; i++) wheelBy(-100)
+  close(state.view.zoom, zoomRange(0.37).max)
+  assert.equal(output.textContent, "275%")
+  for (let i = 0; i < 100; i++) wheelBy(100)
+  close(state.view.zoom, zoomRange(0.37).min)
+  assert.equal(output.textContent, "25%")
+})
+
+test("an unchanged sync at a fit writes nothing to the slider", () => {
+  const {state, slider, output} = fittedAt(0.37)
+  state.sync()
+  for (const el of [state.world, state.canvas, state.composer, slider]) {
+    el.setAttribute = el.removeAttribute = () => assert.fail("redundant attribute mutation")
+  }
+  Object.defineProperty(output, "textContent", {get: () => "100%", set: () => assert.fail("redundant text mutation")})
+  Object.defineProperty(slider, "value", {get: () => "100", set: () => assert.fail("redundant value mutation")})
+  state.sync()
+})
+
+test("a card dragged at a fit moves by the screen delta over the true scale", () => {
+  const cards = wideCards()
+  const {state, event, clickReset} = zoomCanvas({cards})
+  clickReset()
+  const scale = state.view.zoom
+  const view = {...state.view}
+  const target = {closest: query => query === "article[data-node]" ? cards[0] : null}
+  state.pointerDown({...event, target, clientX: 100, clientY: 100})
+  state.pointerMove({...event, target, clientX: 150, clientY: 130})
+  state.pointerUp({...event, target, clientX: 150, clientY: 130})
+  assert.deepEqual(state.pushes, [{
+    name: "node_moved",
+    payload: {node: "a", x: Math.round(50 / scale), y: Math.round(30 / scale), level: "workflow"},
+  }])
+  assert.deepEqual(state.view, view)
+})
+
+// An After connection held over one card, as the browser's hit test would answer.
+function overCard(card) {
+  const state = Object.create(hook)
+  state.canvas = {contains: () => true}
+  state.hit = () => ({closest: query => query === "article[data-node]" ? card : null})
+  return state.dropTarget({after: true, source: "other", pointer: {x: 0, y: 0}})
+}
+
+test("an After connection takes no source node as its target, and doesn't throw on it", () => {
+  // A source node has no after-in socket, so reading one would throw.
+  assert.equal(overCard({dataset: {node: "prompt", sourceNode: ""}, querySelector: () => null}), null)
+})
+
+test("an After connection over a runner card targets its after-in socket", () => {
+  const socket = {dataset: {socket: "after-in:a"}}
+  const card = {dataset: {node: "a"}, querySelector: () => socket}
+  assert.deepEqual(overCard(card), {el: card, socket: "after-in:a"})
+})
+
+test("a Reset during a gesture leaves a fitted view and its fit alone", () => {
+  const cards = wideCards()
+  const {state, output, slide, clickReset} = zoomCanvas({cards})
+  clickReset()
+  slide(150)
+  const view = {...state.view}
+  const fit = state.fit
+  state.gesture = {kind: "pan", pointerId: 1}
+  cards[1].offsetWidth = 4000
+  clickReset()
+  assert.deepEqual(state.view, view)
+  assert.equal(state.fit, fit)
+  assert.equal(output.textContent, "150%")
 })

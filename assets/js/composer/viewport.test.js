@@ -1,7 +1,20 @@
 import assert from "node:assert/strict"
 import {test} from "node:test"
-import {screenToWorld} from "./geometry.js"
-import {initial, panBy, transform, wheel} from "./viewport.js"
+import {screenToWorld, zoomRange} from "./geometry.js"
+import {FIT_FLOOR, fitView, initial, panBy, transform, wheel} from "./viewport.js"
+
+const box = (left, top, width = 200, height = 100) => ({left, top, right: left + width, bottom: top + height})
+
+// A world box's rect on screen, under `view`.
+const onScreen = (view, {left, top, right, bottom}) => ({
+  left: left * view.zoom + view.x,
+  right: right * view.zoom + view.x,
+  top: top * view.zoom + view.y,
+  bottom: bottom * view.zoom + view.y,
+})
+
+const inside = ({left, top, right, bottom}, {width, height}, padding = 0) =>
+  left >= padding && top >= padding && right <= width - padding && bottom <= height - padding
 
 test("panning moves the view and keeps the zoom", () => {
   assert.deepEqual(panBy({x: 1, y: 2, zoom: 2}, 10, -5), {x: 11, y: -3, zoom: 2})
@@ -41,6 +54,73 @@ test("wheel zoom held at a limit reverses at once", () => {
   for (let i = 0; i < 50; i++) view = pinch(view, -100)
   assert.equal(view.zoom, 2)
   assert.equal(pinch(view, 100).zoom, 1.65)
+})
+
+test("a pinch with a fit lands on relative 5% steps and stops at the fit's range", () => {
+  const fit = 0.5
+  const point = {x: 100, y: 100}
+  const pinch = (view, deltaY) => wheel(view, {deltaX: 0, deltaY, ctrlKey: true}, point, fit)
+  let view = {x: 0, y: 0, zoom: fit}
+  for (let i = 0; i < 20; i++) {
+    view = pinch(view, -30)
+    const steps = (view.zoom / fit) * 20
+    assert.ok(Math.abs(steps - Math.round(steps)) < 1e-9, String(view.zoom))
+  }
+  for (let i = 0; i < 50; i++) view = pinch(view, -100)
+  assert.equal(view.zoom, zoomRange(fit).max)
+  for (let i = 0; i < 50; i++) view = pinch(view, 100)
+  assert.equal(view.zoom, zoomRange(fit).min)
+})
+
+test("a large graph shrinks until every card is inside the padded canvas", () => {
+  const canvas = {width: 1248, height: 860}
+  const boxes = [box(0, 0), box(3000, 200), box(1500, 2000)]
+  const view = fitView(boxes, canvas)
+  assert.ok(view.zoom < 1)
+  for (const card of boxes) assert.ok(inside(onScreen(view, card), canvas, 63.999))
+})
+
+test("a small graph keeps real size", () => {
+  const view = fitView([box(0, 0), box(300, 0)], {width: 1248, height: 860})
+  assert.equal(view.zoom, 1)
+})
+
+test("negative coordinates come into view at scale 1", () => {
+  const canvas = {width: 1248, height: 860}
+  const boxes = [box(-300, -100), box(100, 50)]
+  const view = fitView(boxes, canvas)
+  assert.equal(view.zoom, 1)
+  for (const card of boxes) assert.ok(inside(onScreen(view, card), canvas))
+})
+
+test("nothing to fit, or nowhere to fit it, gives the initial view", () => {
+  assert.deepEqual(fitView([], {width: 800, height: 600}), initial())
+  assert.deepEqual(fitView([box(0, 0)], {width: 0, height: 600}), initial())
+  assert.deepEqual(fitView([box(0, 0)], {width: 800, height: 0}), initial())
+})
+
+test("a zero-size box on a canvas with no room beyond its padding stays finite and positive", () => {
+  const view = fitView([box(10, 10, 0, 0)], {width: 128, height: 128})
+  for (const value of [view.x, view.y, view.zoom]) assert.ok(Number.isFinite(value))
+  assert.ok(view.zoom > 0)
+})
+
+test("an outlier stops the scale at the floor and keeps the nearby cards in view", () => {
+  const canvas = {width: 1248, height: 860}
+  for (const outlier of [20000, -20000]) {
+    const near = [box(0, 0), box(400, 0)]
+    const view = fitView([...near, box(outlier, 0)], canvas)
+    assert.equal(view.zoom, FIT_FLOOR)
+    for (const card of near) assert.ok(inside(onScreen(view, card), canvas), String(outlier))
+  }
+})
+
+test("a graph too big on both axes still shows a whole card at the floor", () => {
+  const canvas = {width: 1248, height: 860}
+  const boxes = [box(0, 20000), box(20000, 0), box(40000, 40000)]
+  const view = fitView(boxes, canvas)
+  assert.equal(view.zoom, FIT_FLOOR)
+  assert.ok(boxes.some(card => inside(onScreen(view, card), canvas)))
 })
 
 test("the transform translates then scales", () => {

@@ -6,9 +6,9 @@
 // The hook sits on the ignored wire layer because `pushEvent` locks its element, and
 // that lock must not cover the cards.
 import * as Drag from "./drag.js"
-import {cubicPath, socketPoint, worldBox, zoomAt} from "./geometry.js"
+import {cubicPath, sliderMax, socketPoint, worldBox, zoomAt} from "./geometry.js"
 import {escapeAction, isEditable, isUndo} from "./keys.js"
-import {initial, panBy, transform, wheel} from "./viewport.js"
+import {fitView, initial, panBy, transform, wheel} from "./viewport.js"
 import {wirePaths} from "./wires.js"
 
 const SVG_NS = "http://www.w3.org/2000/svg"
@@ -74,6 +74,7 @@ export default {
       this.pendingFocus = id
       this.syncFocus()
     })
+    this.refit()
     this.sync()
     this.draw()
   },
@@ -108,13 +109,24 @@ export default {
     return {x: Number(card.dataset.x), y: Number(card.dataset.y)}
   },
 
+  // Measures through `data-x/y` and offset sizes, which a world transform doesn't change.
+  // `view.zoom` stays the true scale; `fit` is the scale shown as 100%.
+  refit() {
+    const boxes = [...this.cards()].map(card => {
+      const {x, y} = Drag.position(this.moves.get(card.dataset.node), this.serverPosition(card))
+      return {left: x, top: y, right: x + card.offsetWidth, bottom: y + card.offsetHeight}
+    })
+    this.view = fitView(boxes, this.canvas.getBoundingClientRect())
+    this.fit = this.view.zoom
+  },
+
   // Puts back what a patch reset. Runs before paint, from the observer.
   sync() {
     // The workflow and each stage are separate worlds, sharing this layer across a patch.
     if (this.world.dataset.level !== this.level) {
       this.level = this.world.dataset.level
-      this.view = initial()
       this.moves.clear()
+      this.refit()
       const gesture = this.gesture
       this.gesture = null
       if (gesture) this.endWire(gesture)
@@ -139,11 +151,14 @@ export default {
 
   syncZoom() {
     const percent = this.canvas.querySelector("#canvas-zoom-percent")
-    const value = String(Math.round(this.view.zoom * 100))
+    const fit = this.fit ?? 1
+    const value = String(Math.round((this.view.zoom / fit) * 100))
     const label = `${value}%`
     if (percent && percent.textContent !== label) percent.textContent = label
     const slider = this.canvas.querySelector("#canvas-zoom-slider")
     if (slider) {
+      // Before the value, because a browser clamps a value to the current max.
+      setAttr(slider, "max", String(sliderMax(fit)))
       if (slider.value !== value) slider.value = value
       setAttr(slider, "aria-valuetext", label)
     }
@@ -399,7 +414,7 @@ export default {
     if (!event.target.closest("#canvas-zoom-reset")) return
     event.preventDefault()
     if (this.gesture) return
-    this.view = initial()
+    this.refit()
     this.sync()
     this.scheduleDraw()
   },
@@ -409,7 +424,8 @@ export default {
     if (target.id !== "canvas-zoom-slider") return
     if (!this.gesture) {
       const rect = this.canvas.getBoundingClientRect()
-      this.view = zoomAt(this.view, {x: rect.width / 2, y: rect.height / 2}, Number(target.value) / 100)
+      const fit = this.fit ?? 1
+      this.view = zoomAt(this.view, {x: rect.width / 2, y: rect.height / 2}, fit * Number(target.value) / 100, fit)
     }
     this.sync()
     this.scheduleDraw()
@@ -419,7 +435,7 @@ export default {
     event.preventDefault()
     if (this.gesture) return
     const rect = this.canvas.getBoundingClientRect()
-    this.view = wheel(this.view, event, {x: event.clientX - rect.left, y: event.clientY - rect.top})
+    this.view = wheel(this.view, event, {x: event.clientX - rect.left, y: event.clientY - rect.top}, this.fit ?? 1)
     this.sync()
     this.scheduleDraw()
   },
@@ -469,7 +485,7 @@ export default {
     if (!el || !this.canvas.contains(el)) return null
     if (gesture.after) {
       const card = el.closest("article[data-node]")
-      if (!card || card.dataset.node === gesture.source) return null
+      if (!card || card.dataset.node === gesture.source || card.dataset.sourceNode !== undefined) return null
       return {el: card, socket: card.querySelector(`header > [data-socket^="after-in:"]`).dataset.socket}
     }
     const row = el.closest("li[data-field]")
