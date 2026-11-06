@@ -93,6 +93,18 @@ defmodule Domovoy.Composer do
   end
 
   @doc """
+  Creates a draft holding a finished document, in one insert, so no partial draft can
+  exist. The document's engine name is kept.
+  """
+  @spec create_draft(title :: String.t(), document :: Document.t()) ::
+          {:ok, Draft.t()} | {:error, Ecto.Changeset.t()}
+  def create_draft(title, document) do
+    %Draft{}
+    |> Draft.changeset(%{title: title, document: document})
+    |> Repo.insert(log: false)
+  end
+
+  @doc """
   Saves a document. A stale draft gives `:conflict` when its row still exists,
   leaving the newer save intact, and `:gone` when it was deleted.
 
