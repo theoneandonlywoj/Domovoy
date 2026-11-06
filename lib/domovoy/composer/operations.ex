@@ -104,7 +104,7 @@ defmodule Domovoy.Composer.Operations do
       updated =
         document
         |> update_in(["vertices", stage, "nodes"], &Map.delete(&1, name))
-        |> update_in(["layout", "stages", stage], &Map.delete(&1, name))
+        |> update_placements(&Map.delete(&1, name))
 
       {:ok, updated, :definition}
     end
@@ -245,7 +245,12 @@ defmodule Domovoy.Composer.Operations do
 
   defp apply_op(document, {:remove_input, name}) when is_binary(name) do
     if is_map_key(document["inputs"], name) do
-      {:ok, update_in(document, ["inputs"], &Map.delete(&1, name)), :definition}
+      updated =
+        document
+        |> update_in(["inputs"], &Map.delete(&1, name))
+        |> update_placements(&Map.delete(&1, name))
+
+      {:ok, updated, :definition}
     else
       {:error, unknown(:unknown_input, "input")}
     end
@@ -275,8 +280,11 @@ defmodule Domovoy.Composer.Operations do
 
   defp apply_op(document, {:remove_vertex, name}) when is_binary(name) do
     with {:ok, _vertex} <- fetch_vertex(document, name) do
+      nodes = document |> Document.nodes(name) |> Map.keys()
+
       updated =
         document
+        |> update_placements(&Map.drop(&1, nodes))
         |> update_in(["vertices"], &Map.delete(&1, name))
         |> update_in(["layout", "workflow"], &Map.delete(&1, name))
         |> update_in(["layout", "stages"], &Map.delete(&1, name))
@@ -629,7 +637,11 @@ defmodule Domovoy.Composer.Operations do
   end
 
   defp check_placed(document, {:stage, stage}, name) do
-    with {:ok, _node} <- fetch_node(document, stage, name), do: :ok
+    if name in Compatibility.stage_sources(document, stage) do
+      :ok
+    else
+      with {:ok, _node} <- fetch_node(document, stage, name), do: :ok
+    end
   end
 
   @spec check_decision_attrs(attrs :: map()) :: :ok | {:error, Issue.t()}
@@ -840,8 +852,24 @@ defmodule Domovoy.Composer.Operations do
 
     renamed
     |> update_in(["vertices", stage, "nodes"], &rename_key(&1, old, new))
-    |> update_in(["layout", "stages", stage], &rename_key(&1, old, new))
+    |> update_placements(&rename_key(&1, old, new))
   end
+
+  # `layout` isn't validated when a draft loads, and removing an input must keep working
+  # on a hand-built draft, so anything unexpected is left as it is.
+  @spec update_placements(document :: Document.t(), fun :: (map() -> map())) :: Document.t()
+  defp update_placements(%{"layout" => %{"stages" => stages}} = document, fun)
+       when is_map(stages) do
+    updated =
+      Map.new(stages, fn
+        {stage, placed} when is_map(placed) -> {stage, fun.(placed)}
+        other -> other
+      end)
+
+    put_in(document, ["layout", "stages"], updated)
+  end
+
+  defp update_placements(document, _fun), do: document
 
   @spec rename_binding(input :: {String.t(), map()}, old :: String.t(), new :: String.t()) ::
           {String.t(), map()}

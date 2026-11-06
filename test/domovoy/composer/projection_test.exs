@@ -138,7 +138,24 @@ defmodule Domovoy.Composer.ProjectionTest do
       row = Enum.find(rows, &(&1.name == "worktree_directory"))
 
       assert row.origin == "From stage: prepare / node: worktree_directory / Directory"
+      assert row.type_label == "Directory"
+      assert row.bound? == false
       refute Enum.any?(rows, &(&1.name == "prompt"))
+    end
+
+    test "are bound once one of the stage's fields reads them" do
+      document =
+        edit_all(two_stages(), [
+          {:add_node, "after_review", @trust, "trust"},
+          {:add_node, "after_review", @directory, "directory"},
+          {:bind, "after_review", "directory", "worktree", "resolve_worktree",
+           replace_literal: false}
+        ])
+
+      rows = Projection.stage_view(document, "after_review").prior_sources
+
+      assert Enum.find(rows, &(&1.name == "resolve_worktree")).bound?
+      refute Enum.find(rows, &(&1.name == "worktree_directory")).bound?
     end
 
     test "leave out the stage's own nodes, and whatever doesn't precede it" do
@@ -167,6 +184,114 @@ defmodule Domovoy.Composer.ProjectionTest do
 
       assert Enum.find(rows, &(&1.name == "note")).origin ==
                "From decision: review / input: note / String"
+    end
+  end
+
+  describe "stage_view/2 source nodes" do
+    # Stage `second` holds cards at known positions, reads `made` and leaves `spare` unread.
+    defp sources_document do
+      edit_all(Document.new("w"), [
+        {:put_input, "alpha", %{"type" => @string}},
+        {:put_input, "zeta", %{"type" => @string}},
+        {:add_stage, "second"},
+        {:set_next, "main", "second"},
+        {:add_node, "main", @resolve, "made"},
+        {:add_node, "main", @resolve, "spare"},
+        {:add_node, "second", @directory, "reader"},
+        {:move, {:stage, "second"}, "reader", 500, 300},
+        {:bind, "second", "reader", "worktree", "made", replace_literal: false}
+      ])
+    end
+
+    defp source(view, name), do: Enum.find(view.source_nodes, &(&1.name == name))
+    defp position(view, name), do: {source(view, name).x, source(view, name).y}
+
+    test "an unmoved source sits left of the leftmost card, in sorted rows" do
+      view = Projection.stage_view(sources_document(), "second")
+
+      assert Enum.map(view.source_nodes, & &1.name) == ["alpha", "made", "zeta"]
+      assert position(view, "alpha") == {160, 300}
+      assert position(view, "made") == {160, 412}
+      assert position(view, "zeta") == {160, 524}
+    end
+
+    test "with no cards they start left of where the first card would go" do
+      document = edit_all(Document.new("w"), [{:put_input, "a", %{"type" => @string}}])
+
+      assert position(Projection.stage_view(document, "main"), "a") == {-280, 80}
+    end
+
+    test "a moved source sits at its saved position, and its siblings stay" do
+      before = Projection.stage_view(sources_document(), "second")
+
+      moved =
+        sources_document()
+        |> edit_all([{:move, {:stage, "second"}, "made", -40, 900}])
+        |> Projection.stage_view("second")
+
+      assert position(moved, "made") == {-40, 900}
+      assert position(moved, "alpha") == position(before, "alpha")
+      assert position(moved, "zeta") == position(before, "zeta")
+    end
+
+    test "a source keeps its row's socket, connect id and identity" do
+      view = Projection.stage_view(sources_document(), "second")
+
+      assert %{
+               dom_id: "source-alpha",
+               kind: :input,
+               socket: "out:alpha",
+               connect_id: "input-alpha-connect",
+               type_label: "String"
+             } = source(view, "alpha")
+
+      assert %{
+               dom_id: "source-made",
+               kind: :prior,
+               socket: "out:made",
+               connect_id: "prior-made-connect",
+               type_label: "Git Worktree",
+               issues: []
+             } = source(view, "made")
+
+      assert source(view, "spare") == nil
+    end
+
+    test "a bound choice input has a source node" do
+      document =
+        edit_all(two_stages(), [
+          {:put_choice, "review",
+           %{
+             "name" => "go",
+             "description" => "Go on",
+             "target" => ["run", "after_review"],
+             "inputs" => %{"note" => @string}
+           }},
+          {:add_node, "after_review", @resolve, "again"},
+          {:bind, "after_review", "again", "worktree_name", "note", replace_literal: false}
+        ])
+
+      assert %{kind: :prior, connect_id: "prior-note-connect"} =
+               document |> Projection.stage_view("after_review") |> source("note")
+    end
+
+    test "a read of a node whose runner left the catalog projects, with no source node" do
+      document =
+        put_in(
+          sources_document(),
+          ["vertices", "main", "nodes", "made", "runner"],
+          "Gone.Runner"
+        )
+
+      view = Projection.stage_view(document, "second")
+
+      assert source(view, "made") == nil
+      assert Enum.map(view.source_nodes, & &1.name) == ["alpha", "zeta"]
+    end
+
+    test "the workflow has none, and neither has a nil stage" do
+      assert Projection.workflow_view(sources_document()).source_nodes == []
+      assert Projection.stage_view(sources_document(), nil).source_nodes == []
     end
   end
 

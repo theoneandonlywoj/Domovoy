@@ -137,6 +137,7 @@ defmodule DomovoyWeb.ComposerLive do
             <.input_rail
               inputs={@view.inputs}
               prior={@view.prior_sources}
+              connect?={false}
               form={@input_form}
               types={@types}
             />
@@ -152,6 +153,7 @@ defmodule DomovoyWeb.ComposerLive do
 
           <.stage_canvas
             cards={@view.cards}
+            sources={@view.source_nodes}
             edges={@view.edges}
             selected={@selected}
             stage={@stage}

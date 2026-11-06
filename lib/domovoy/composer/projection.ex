@@ -16,6 +16,10 @@ defmodule Domovoy.Composer.Projection do
   alias Domovoy.Composer.Issue
   alias Domovoy.Composer.LiteralPolicy
 
+  # A source node that was never moved sits this far left of the leftmost card.
+  @source_column_gap 340
+  @source_row_step 112
+
   @typep context :: %{
            document: Document.t(),
            stage: String.t() | nil,
@@ -39,14 +43,19 @@ defmodule Domovoy.Composer.Projection do
 
     nodes = Enum.sort(Document.nodes(document, stage))
     relationships = Enum.flat_map(nodes, &relationships(context, &1))
+    sources = Compatibility.stage_sources(document, stage)
+    cards = Enum.map(nodes, &card(context, &1))
+    inputs = document["inputs"] |> Enum.sort() |> Enum.map(&input_row(context, &1))
+    prior = prior_sources(context, sources)
 
     %{
       stage: stage,
       issues: issues,
       issues_by_target: context.by_target,
-      cards: Enum.map(nodes, &card(context, &1)),
-      inputs: document["inputs"] |> Enum.sort() |> Enum.map(&input_row(context, &1)),
-      prior_sources: prior_sources(context),
+      cards: cards,
+      inputs: inputs,
+      prior_sources: prior,
+      source_nodes: source_nodes(context, inputs, prior, sources, cards),
       relationships: relationships,
       edges: Enum.map(relationships, &edge/1)
     }
@@ -76,6 +85,7 @@ defmodule Domovoy.Composer.Projection do
       cards: cards,
       inputs: document["inputs"] |> Enum.sort() |> Enum.map(&input_row(context, &1)),
       prior_sources: [],
+      source_nodes: [],
       relationships: [],
       edges: Enum.flat_map(cards, &vertex_edges/1),
       loop?: Compatibility.loop?(document)
@@ -567,10 +577,10 @@ defmodule Domovoy.Composer.Projection do
 
   # Sources from other vertices
 
-  @spec prior_sources(context :: context()) :: [map()]
-  defp prior_sources(%{stage: nil}), do: []
+  @spec prior_sources(context :: context(), sources :: [String.t()]) :: [map()]
+  defp prior_sources(%{stage: nil}, _sources), do: []
 
-  defp prior_sources(%{document: document, stage: stage, visible: visible}) do
+  defp prior_sources(%{document: document, stage: stage, visible: visible}, sources) do
     own = Document.nodes(document, stage)
 
     for name <- visible,
@@ -581,8 +591,64 @@ defmodule Domovoy.Composer.Projection do
         name: name,
         dom_id: "prior-#{dom_part(name)}",
         socket: output_socket(name),
+        type_label: Catalog.type_label(type),
+        bound?: name in sources,
         origin: "#{origin(document, name)} / #{Catalog.type_label(type)}"
       }
+    end
+  end
+
+  # Source nodes
+
+  # Each name has exactly one row, because `stage_sources/2` requires a known type, which
+  # is what `prior_sources/2` filters on.
+  @spec source_nodes(
+          context :: context(),
+          inputs :: [map()],
+          prior :: [map()],
+          sources :: [String.t()],
+          cards :: [map()]
+        ) :: [map()]
+  defp source_nodes(context, inputs, prior, sources, cards) do
+    rows =
+      Map.new(
+        Enum.map(inputs, &{&1.name, {:input, &1}}) ++ Enum.map(prior, &{&1.name, {:prior, &1}})
+      )
+
+    left = cards |> Enum.map(& &1.x) |> Enum.min(fn -> 60 end)
+    top = cards |> Enum.map(& &1.y) |> Enum.min(fn -> 80 end)
+
+    for {name, index} <- Enum.with_index(sources) do
+      {kind, row} = Map.fetch!(rows, name)
+      unmoved = {left - @source_column_gap, top + index * @source_row_step}
+      {x, y} = source_position(context, name, unmoved)
+
+      %{
+        name: name,
+        dom_id: "source-#{dom_part(name)}",
+        kind: kind,
+        socket: row.socket,
+        connect_id: "#{row.dom_id}-connect",
+        type_label: row.type_label,
+        row: row,
+        issues: Map.get(row, :issues, []),
+        x: x,
+        y: y
+      }
+    end
+  end
+
+  # A source node has a saved position only once it has been moved.
+  @spec source_position(
+          context :: context(),
+          name :: String.t(),
+          unmoved :: {integer(), integer()}
+        ) ::
+          {integer(), integer()}
+  defp source_position(context, name, unmoved) do
+    case get_in(context.document, ["layout", "stages", context.stage, name]) do
+      %{"x" => x, "y" => y} when is_integer(x) and is_integer(y) -> {x, y}
+      _unmoved -> unmoved
     end
   end
 

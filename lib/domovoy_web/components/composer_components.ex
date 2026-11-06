@@ -288,6 +288,7 @@ defmodule DomovoyWeb.ComposerComponents do
         class="soft-row relative px-2 py-1.5 text-xs"
       >
         <span
+          :if={not source.bound?}
           data-socket={source.socket}
           data-source={source.name}
           aria-hidden="true"
@@ -299,6 +300,7 @@ defmodule DomovoyWeb.ComposerComponents do
           may be from an earlier generation
         </p>
         <button
+          :if={not source.bound?}
           id={"#{source.dom_id}-connect"}
           type="button"
           phx-click={JS.push_focus() |> JS.push("open_connect", value: %{source: source.name})}
@@ -554,11 +556,12 @@ defmodule DomovoyWeb.ComposerComponents do
   def canvas_level(stage), do: "stage:#{stage}"
 
   @doc """
-  The stage's cards, placed at their saved positions, and the wire layer the
+  The stage's cards and source nodes, placed at their positions, and the wire layer the
   `ComposerCanvas` hook owns. The hook adds pan, zoom, drag and connect gestures; each
   ends in an ordinary event, and rules stay on the server.
   """
   attr :cards, :list, required: true
+  attr :sources, :list, default: []
   attr :edges, :list, required: true
   attr :selected, :string, default: nil
 
@@ -576,6 +579,7 @@ defmodule DomovoyWeb.ComposerComponents do
         card={card}
         selected?={card.name == @selected}
       />
+      <.source_node :for={source <- @sources} :key={source.name} source={source} />
     </.canvas_frame>
     """
   end
@@ -905,6 +909,64 @@ defmodule DomovoyWeb.ComposerComponents do
       </footer>
     </article>
     """
+  end
+
+  attr :source, :map, required: true
+
+  # Follows `runner_card`'s contract, so it syncs, drags and clears wires like a card. It
+  # isn't selectable and takes no connection.
+  defp source_node(assigns) do
+    assigns = assign(assigns, quiet: @quiet, detail: source_detail(assigns.source))
+
+    ~H"""
+    <article
+      id={@source.dom_id}
+      aria-label={"#{source_kind_label(@source.kind)} #{@source.name}"}
+      data-node={@source.name}
+      data-source-node
+      data-x={@source.x}
+      data-y={@source.y}
+      style={"left:#{@source.x}px;top:#{@source.y}px"}
+      class={[
+        "soft-panel isolate absolute w-[240px] px-3 py-2 text-xs hover:z-10 focus-within:z-10",
+        @source.issues != [] && "ring-2 ring-error"
+      ]}
+    >
+      <span
+        data-socket={@source.socket}
+        data-source={@source.name}
+        aria-hidden="true"
+        title="Drag onto a field to bind it"
+        class="socket socket-out -right-[6px]"
+      ></span>
+      <div class="flex items-center gap-1">
+        <span class="min-w-0 flex-1 truncate text-sm font-medium">{@source.name}</span>
+        <.type_chip label={@source.type_label} />
+      </div>
+      <div class="mt-1 flex items-center gap-1 text-muted">
+        <span id={"#{@source.dom_id}-detail"} title={@detail} class="min-w-0 flex-1 truncate">
+          {@detail}
+        </span>
+        <button
+          id={@source.connect_id}
+          type="button"
+          phx-click={JS.push_focus() |> JS.push("open_connect", value: %{source: @source.name})}
+          class={@quiet}
+        >
+          Connect to
+        </button>
+      </div>
+    </article>
+    """
+  end
+
+  defp source_kind_label(:input), do: "Input"
+  defp source_kind_label(:prior), do: "Earlier source"
+
+  defp source_detail(%{kind: :prior, row: row}), do: row.origin
+
+  defp source_detail(%{kind: :input, row: row}) do
+    "#{if row.required, do: "required", else: "optional"} · #{default_label(row)}"
   end
 
   defp policy_text(%{max_attempts: nil, store: store}) do

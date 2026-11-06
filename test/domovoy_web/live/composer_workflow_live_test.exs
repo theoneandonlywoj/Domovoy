@@ -329,6 +329,8 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
              )
 
       assert has_element?(view, "#any-across-stages", "Any matches only Any")
+      assert has_element?(view, ~s(#prior-resolve_worktree [data-socket="out:resolve_worktree"]))
+      assert has_element?(view, "#prior-resolve_worktree-connect")
     end
 
     test "a prior source always says it may be from an earlier generation, loop or not", %{

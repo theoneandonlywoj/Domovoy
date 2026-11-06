@@ -104,6 +104,32 @@ defmodule Domovoy.Composer.Compatibility do
   end
 
   @doc """
+  The sources `stage` shows as nodes: every workflow input, and any other source one
+  of its fields reads while it is visible to the stage and has a known type. A source
+  with no known type has no row to show, as when its runner left the catalog.
+  """
+  @spec stage_sources(document :: Document.t(), stage :: String.t() | nil) :: [String.t()]
+  def stage_sources(_document, nil), do: []
+
+  def stage_sources(document, stage) do
+    own = Document.nodes(document, stage)
+
+    read =
+      for({_name, node} <- own, {_field, %{"bind" => source}} <- node["inputs"], do: source)
+      |> Enum.uniq()
+      |> Enum.reject(&is_map_key(own, &1))
+      |> Enum.filter(
+        &(visibility(document, stage, &1) == :visible and
+            source_type(document, stage, &1) != :error)
+      )
+
+    (Map.keys(document["inputs"]) ++ read)
+    |> Enum.uniq()
+    |> Enum.reject(&is_map_key(own, &1))
+    |> Enum.sort()
+  end
+
+  @doc """
   The bindings of a stage that give an external source a second concrete type,
   the first in Core's order of node then field being the one the others conflict
   with. Any never conflicts.

@@ -23,6 +23,73 @@ defmodule Domovoy.Composer.CompatibilityTest do
     ])
   end
 
+  describe "stage_sources/2" do
+    defp reading do
+      edit_all(two_stages(), [
+        {:bind, "later", "directory", "worktree", "resolve", replace_literal: false}
+      ])
+    end
+
+    defp bound(document, stage, node, field, source) do
+      put_in(document, ["vertices", stage, "nodes", node, "inputs", field], %{"bind" => source})
+    end
+
+    test "gives every input and each read visible source, and no unread one" do
+      assert Compatibility.stage_sources(two_stages(), "later") == ["prompt"]
+      assert Compatibility.stage_sources(reading(), "later") == ["prompt", "resolve"]
+      assert Compatibility.stage_sources(reading(), "main") == ["prompt"]
+    end
+
+    test "gives a read choice input" do
+      document =
+        edit_all(scenario_a(), [
+          {:add_stage, "after_review"},
+          {:put_choice, "review",
+           %{
+             "name" => "go",
+             "description" => "Go on",
+             "target" => ["run", "after_review"],
+             "inputs" => %{"note" => @string}
+           }},
+          {:add_node, "after_review", "DomovoyGitPlugin.Runner.WorktreeResolve", "again"}
+        ])
+
+      assert "note" not in Compatibility.stage_sources(document, "after_review")
+
+      read =
+        edit_all(document, [
+          {:bind, "after_review", "again", "worktree_name", "note", replace_literal: false}
+        ])
+
+      assert "note" in Compatibility.stage_sources(read, "after_review")
+    end
+
+    test "leaves out a read that doesn't precede the stage" do
+      document = bound(two_stages(), "main", "resolve", "worktree_name", "directory")
+
+      assert Compatibility.stage_sources(document, "main") == ["prompt"]
+    end
+
+    test "leaves out the stage's own nodes, even one sharing an input's name" do
+      own = bound(two_stages(), "later", "trust", "worktree", "directory")
+      assert Compatibility.stage_sources(own, "later") == ["prompt"]
+
+      hand_built = put_in(two_stages(), ["inputs", "resolve"], %{"type" => @string})
+      assert Compatibility.stage_sources(hand_built, "main") == ["prompt"]
+    end
+
+    test "leaves out a read node whose runner left the catalog" do
+      document =
+        put_in(reading(), ["vertices", "main", "nodes", "resolve", "runner"], "Gone.Runner")
+
+      assert Compatibility.stage_sources(document, "later") == ["prompt"]
+    end
+
+    test "a nil stage has none" do
+      assert Compatibility.stage_sources(reading(), nil) == []
+    end
+  end
+
   describe "within one graph" do
     test "an exact type passes" do
       assert Compatibility.check(two_stages(), "main", @worktree, "resolve") == {:ok, :exact}

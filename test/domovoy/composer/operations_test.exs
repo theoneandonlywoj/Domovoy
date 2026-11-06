@@ -601,6 +601,106 @@ defmodule Domovoy.Composer.OperationsTest do
     end
   end
 
+  describe "source node positions" do
+    # `resolve` of stage `main` is read by `directory` of stage `later`, and input `name`
+    # exists on both. `main`'s `unread` isn't read by anything.
+    defp sourced do
+      edit_all(two_stages(), [
+        {:put_input, "name", %{"type" => @string}},
+        {:add_node, "main", @detect, "unread"},
+        bind("later", "directory", "worktree", "resolve")
+      ])
+    end
+
+    defp placed(document, stage, name), do: document["layout"]["stages"][stage][name]
+
+    test "moving an input saves it under that stage only, as a layout change" do
+      document = sourced()
+
+      assert {:ok, updated, :layout} =
+               Operations.edit(document, {:move, {:stage, "later"}, "name", 5, 6})
+
+      assert placed(updated, "later", "name") == %{"x" => 5, "y" => 6}
+      assert placed(updated, "main", "name") == nil
+    end
+
+    test "moving a read earlier source saves it under the reading stage" do
+      assert {:ok, updated, :layout} =
+               Operations.edit(sourced(), {:move, {:stage, "later"}, "resolve", 5, 6})
+
+      assert placed(updated, "later", "resolve") == %{"x" => 5, "y" => 6}
+      assert placed(updated, "main", "resolve") == placed(sourced(), "main", "resolve")
+    end
+
+    test "a second identical move changes nothing" do
+      moved = edit_all(sourced(), [{:move, {:stage, "later"}, "name", 5, 6}])
+
+      assert {:ok, ^moved, :none} =
+               Operations.edit(moved, {:move, {:stage, "later"}, "name", 5, 6})
+    end
+
+    test "refuses an unread earlier source, an unknown-runner read and an unknown name" do
+      document = sourced()
+      refused(document, {:move, {:stage, "later"}, "unread", 0, 0}, :unknown_node)
+      refused(document, {:move, {:stage, "later"}, "gone", 0, 0}, :unknown_node)
+
+      unknown =
+        put_in(document, ["vertices", "main", "nodes", "resolve", "runner"], "Gone.Runner")
+
+      refused(unknown, {:move, {:stage, "later"}, "resolve", 0, 0}, :unknown_node)
+    end
+
+    test "remove_input clears the input's position on every stage" do
+      document =
+        edit_all(sourced(), [
+          {:move, {:stage, "main"}, "name", 1, 2},
+          {:move, {:stage, "later"}, "name", 3, 4}
+        ])
+
+      updated = edit_all(document, [{:remove_input, "name"}])
+
+      assert placed(updated, "main", "name") == nil
+      assert placed(updated, "later", "name") == nil
+    end
+
+    test "remove_input still succeeds on a layout it can't read" do
+      document = sourced()
+
+      for layout <- [%{}, %{"stages" => 5}, %{"stages" => %{"main" => 5}}] do
+        hand_built = Map.put(document, "layout", layout)
+
+        assert {:ok, updated, :definition} =
+                 Operations.edit(hand_built, {:remove_input, "name"})
+
+        assert updated["layout"] == layout
+      end
+    end
+
+    test "rename_node keeps a downstream position under the new name" do
+      document = edit_all(sourced(), [{:move, {:stage, "later"}, "resolve", 5, 6}])
+
+      updated = edit_all(document, [{:rename_node, "main", "resolve", "renamed"}])
+
+      assert placed(updated, "later", "renamed") == %{"x" => 5, "y" => 6}
+      assert placed(updated, "later", "resolve") == nil
+      assert placed(updated, "main", "renamed") == placed(document, "main", "resolve")
+    end
+
+    test "remove_node and remove_vertex clear downstream positions" do
+      document = edit_all(sourced(), [{:move, {:stage, "later"}, "resolve", 5, 6}])
+
+      removed = edit_all(document, [{:remove_node, "main", "resolve"}])
+      assert placed(removed, "later", "resolve") == nil
+      assert placed(removed, "main", "resolve") == nil
+
+      gone =
+        edit_all(document, [{:set_start, "later"}, {:remove_vertex, "main"}])
+
+      assert placed(gone, "later", "resolve") == nil
+      refute is_map_key(gone["layout"]["stages"], "main")
+    end
+  end
+
   describe "workflow ops" do
     test "set_workflow_name and set_start check names" do
       document = scenario_a()
