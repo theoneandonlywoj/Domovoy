@@ -15,6 +15,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
 
   defp open(conn, draft, stage \\ "prepare") do
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/#{stage}")
+    render_click(element(view, "#open-tools"))
     view
   end
 
@@ -727,6 +728,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
       assert undo_offered?(tab_b)
 
       click(tab_a, "#load-latest")
+      click(tab_a, "#open-tools")
       click(tab_a, "#rel-after-ask_claude-trust_mise-delete")
       kept = saved_document(draft)
 

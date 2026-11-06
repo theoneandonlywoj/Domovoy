@@ -77,16 +77,27 @@ defmodule DomovoyWeb.ComposerLive do
 
     ~H"""
     <Layouts.app flash={@flash} variant="canvas">
-      <div id="composer" class="flex h-full flex-col gap-4 p-4">
+      <div id="composer" class="relative flex h-full flex-col gap-4 p-4">
         <.composer_header
           draft={@draft}
           stage={@stage}
           validity={@validity}
           undo?={not Composer.history_empty?(@history)}
+          tools_open?={@tools_open?}
+          issue_count={length(@issue_rows)}
         />
         <.notices conflict={@conflict} rejection={@rejection} />
 
-        <div :if={!@stage} class="grid min-h-0 flex-1 grid-cols-[19rem_minmax(0,1fr)_24rem] gap-4">
+        <div
+          :if={!@stage}
+          class={[
+            "grid min-h-0 flex-1 gap-4",
+            if(@selected_card,
+              do: "grid-cols-[19rem_minmax(0,1fr)_24rem]",
+              else: "grid-cols-[19rem_minmax(0,1fr)]"
+            )
+          ]}
+        >
           <aside id="left-rail" class="soft-panel overflow-y-auto">
             <.workflow_settings draft={@draft} name={@document["name"]} />
             <.input_rail inputs={@view.inputs} connect?={false} form={@input_form} types={@types} />
@@ -100,9 +111,7 @@ defmodule DomovoyWeb.ComposerLive do
             draft_id={@draft.id}
           />
 
-          <aside id="right-rail" class="soft-panel overflow-y-auto">
-            <.issue_list rows={@issue_rows} draft_id={@draft.id} />
-            <.loop_limits :if={@view.loop?} />
+          <aside :if={@selected_card} id="right-rail" class="soft-panel overflow-y-auto">
             <.vertex_inspector
               card={@selected_card}
               cards={@view.cards}
@@ -113,7 +122,16 @@ defmodule DomovoyWeb.ComposerLive do
           </aside>
         </div>
 
-        <div :if={@stage} class="grid min-h-0 flex-1 grid-cols-[19rem_minmax(0,1fr)_24rem] gap-4">
+        <div
+          :if={@stage}
+          class={[
+            "grid min-h-0 flex-1 gap-4",
+            if(@selected_card,
+              do: "grid-cols-[19rem_minmax(0,1fr)_24rem]",
+              else: "grid-cols-[19rem_minmax(0,1fr)]"
+            )
+          ]}
+        >
           <aside id="left-rail" class="soft-panel overflow-y-auto">
             <.workflow_settings draft={@draft} name={@document["name"]} />
             <.input_rail
@@ -139,15 +157,34 @@ defmodule DomovoyWeb.ComposerLive do
             stage={@stage}
           />
 
-          <aside id="right-rail" class="soft-panel overflow-y-auto">
-            <.issue_list rows={@issue_rows} draft_id={@draft.id} />
-            <.connect_to connect={@connect} />
-            <.clear_input_preview clear={@clear} />
+          <aside :if={@selected_card} id="right-rail" class="soft-panel overflow-y-auto">
             <.inspector card={@selected_card} replace={@replace} runner_options={@runner_options} />
-            <.relationship_list relationships={@view.relationships} />
           </aside>
         </div>
 
+        <aside
+          :if={@tools_open?}
+          id="composer-tools"
+          data-canvas-control
+          aria-label="Issues and tools"
+          class="soft-panel absolute right-4 top-20 z-30 max-h-[calc(100%-6rem)] w-96 max-w-[calc(100%-2rem)] overflow-y-auto"
+        >
+          <div class="flex items-center justify-between border-b border-base-300 p-3">
+            <h2 class="font-semibold">Issues / Tools</h2>
+            <button
+              id="close-tools"
+              type="button"
+              phx-click="close_tools"
+              disabled={not is_nil(@confirm)}
+              class="soft-btn soft-btn-quiet px-2 py-1 text-sm"
+            >Close</button>
+          </div>
+          <.issue_list rows={@issue_rows} draft_id={@draft.id} />
+          <.loop_limits :if={!@stage && @view.loop?} />
+          <.connect_to :if={@stage} connect={@connect} />
+          <.clear_input_preview :if={@stage} clear={@clear} />
+          <.relationship_list :if={@stage} relationships={@view.relationships} />
+        </aside>
         <.confirm_replace_literal confirm={@confirm} />
       </div>
     </Layouts.app>
@@ -371,14 +408,33 @@ defmodule DomovoyWeb.ComposerLive do
 
   def handle_event("close_picker", _params, socket), do: {:noreply, close_picker(socket)}
 
+  def handle_event("open_tools", _params, socket) do
+    {:noreply, assign(socket, :tools_open?, true)}
+  end
+
+  def handle_event("close_tools", _params, socket) do
+    {:noreply, if(socket.assigns.confirm, do: socket, else: assign(socket, :tools_open?, false))}
+  end
+
   # Selection
 
-  def handle_event("select_node", %{"node" => node}, socket) do
+  def handle_event("select_node", %{"node" => node} = params, socket) do
     %{document: document, stage: stage} = socket.assigns
     selectable = if stage, do: Composer.nodes(document, stage), else: document["vertices"]
 
     if is_map_key(selectable, node) do
-      {:noreply, assign(socket, selected: node, replace: nil, choice_form: choice_form(%{}))}
+      socket = assign(socket, selected: node, replace: nil, choice_form: choice_form(%{}))
+
+      socket =
+        if is_binary(params["focus"]) do
+          socket
+          |> assign(:tools_open?, params["tools"] == true or not is_nil(socket.assigns.confirm))
+          |> push_event("composer:focus", %{id: params["focus"]})
+        else
+          socket
+        end
+
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -427,14 +483,16 @@ defmodule DomovoyWeb.ComposerLive do
 
     if source?(socket, source) do
       targets = Composer.connect_targets(document, stage, source)
-      {:noreply, assign(socket, :connect, %{source: source, query: "", targets: targets})}
+
+      {:noreply,
+       assign(socket, connect: %{source: source, query: "", targets: targets}, tools_open?: true)}
     else
       {:noreply, socket}
     end
   end
 
   def handle_event("close_connect", _params, socket) do
-    {:noreply, assign(socket, :connect, nil)}
+    {:noreply, if(socket.assigns.confirm, do: socket, else: assign(socket, :connect, nil))}
   end
 
   def handle_event("connect_search", %{"connect" => %{"query" => query}}, socket)
@@ -510,7 +568,8 @@ defmodule DomovoyWeb.ComposerLive do
 
     case Composer.preview(document, op) do
       %{warnings: [_ | _] = warnings} ->
-        {:noreply, assign(socket, :clear, %{node: node, field: field, warnings: warnings})}
+        {:noreply,
+         assign(socket, clear: %{node: node, field: field, warnings: warnings}, tools_open?: true)}
 
       _no_warning ->
         {:noreply, commit(socket, op)}
@@ -887,7 +946,8 @@ defmodule DomovoyWeb.ComposerLive do
       replace: nil,
       connect: nil,
       clear: nil,
-      selected: nil
+      selected: nil,
+      tools_open?: false
     )
     |> refresh()
   end
@@ -899,6 +959,7 @@ defmodule DomovoyWeb.ComposerLive do
     socket
     |> assign(
       stage: stage,
+      tools_open?: false,
       selected: nil,
       rejection: nil,
       confirm: nil,

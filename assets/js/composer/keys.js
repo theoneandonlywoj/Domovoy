@@ -8,10 +8,11 @@ export const isUndo = event =>
 
 // What one Escape closes, innermost first. `null` leaves it to the browser. Escape while
 // typing must not drop the selection, and the inspector you are typing in with it.
-export function escapeAction({picker, confirmation, gesture, selection, editable}) {
+export function escapeAction({picker, confirmation, gesture, tools, selection, editable}) {
   if (picker) return "picker"
   if (confirmation) return "confirmation"
   if (gesture) return "gesture"
+  if (tools && !editable) return "tools"
   if (selection && !editable) return "selection"
   return null
 }

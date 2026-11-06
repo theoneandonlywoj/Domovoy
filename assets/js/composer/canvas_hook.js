@@ -6,7 +6,7 @@
 // The hook sits on the ignored wire layer because `pushEvent` locks its element, and
 // that lock must not cover the cards.
 import * as Drag from "./drag.js"
-import {cubicPath, socketPoint, worldBox} from "./geometry.js"
+import {cubicPath, MAX_ZOOM, MIN_ZOOM, socketPoint, worldBox, zoomAt} from "./geometry.js"
 import {escapeAction, isEditable, isUndo} from "./keys.js"
 import {initial, panBy, transform, wheel} from "./viewport.js"
 import {wirePaths} from "./wires.js"
@@ -17,7 +17,8 @@ const NOT_CONNECTED = "Not connected, so nothing changed."
 // The controls a press on a card leaves alone. Its name button drags too, because it
 // fills the header; a press with no movement still clicks it.
 const CARD_CONTROLS = "a, button:not([data-card-grip]), input, select, textarea, summary, label, [data-socket]"
-const ESCAPE_BUTTONS = {picker: ["connect-close", "close-picker"], selection: ["deselect-node"]}
+const CANVAS_CONTROLS = "a, button, input, select, textarea, summary, label, [contenteditable], [data-socket], [data-canvas-control]"
+const ESCAPE_BUTTONS = {picker: ["connect-close", "close-picker"], tools: ["close-tools"], selection: ["deselect-node"]}
 
 const setAttr = (el, name, value) => {
   if (value === null) {
@@ -53,6 +54,7 @@ export default {
       [this.composer, "contextmenu", () => this.cancelGesture()],
       [this.composer, "click", e => this.swallowClick(e), {capture: true}],
       [this.composer, "scroll", () => this.scheduleDraw(), {capture: true, passive: true}],
+      [this.canvas, "click", e => this.zoomControl(e)],
       [this.canvas, "wheel", e => this.onWheel(e), {passive: false}],
       [this.canvas, "dblclick", e => this.openCard(e)],
       [window, "keydown", e => this.keyDown(e)],
@@ -67,6 +69,10 @@ export default {
     this.resizes = new ResizeObserver(() => this.scheduleDraw())
     this.resizes.observe(this.canvas)
 
+    this.handleEvent("composer:focus", ({id}) => {
+      this.pendingFocus = id
+      this.syncFocus()
+    })
     this.sync()
     this.draw()
   },
@@ -125,7 +131,58 @@ export default {
     }
     for (const node of this.moves.keys()) if (!seen.has(node)) this.moves.delete(node)
 
+    this.syncZoom()
     this.syncWiring()
+    this.syncFocus()
+  },
+
+  syncZoom() {
+    const percent = this.canvas.querySelector("#canvas-zoom-percent")
+    const label = `${Math.round(this.view.zoom * 100)}%`
+    if (percent && percent.textContent !== label) percent.textContent = label
+    for (const [action, disabled] of [["out", this.view.zoom <= MIN_ZOOM], ["in", this.view.zoom >= MAX_ZOOM]]) {
+      const button = this.canvas.querySelector(`[data-zoom-action="${action}"]`)
+      if (button) setAttr(button, "disabled", disabled ? "" : null)
+    }
+  },
+
+  // A server-selected issue target may arrive after the event, in the next patch.
+  syncFocus() {
+    if (typeof document === "undefined") return
+    const tools = document.getElementById("composer-tools")
+    const inspector = document.getElementById("right-rail")
+    const confirmation = document.getElementById("confirm-replace-literal")
+    const clear = document.getElementById("clear-preview")
+    const activeId = document.activeElement?.id
+    if (tools && !this.toolsMounted) {
+      this.toolsReturnFocus = activeId
+      if (!this.pendingFocus && !confirmation) document.getElementById("close-tools")?.focus()
+    }
+    if (clear && !this.clearMounted) {
+      this.clearReturnFocus = activeId
+      document.getElementById("cancel-clear-input")?.focus()
+    }
+    if (this.clearMounted && !clear && document.activeElement === document.body) {
+      const target = document.getElementById(this.clearReturnFocus) || document.getElementById("open-tools")
+      target?.focus()
+    }
+    if ((this.toolsMounted && !tools) || (this.inspectorMounted && !inspector) || (this.confirmationMounted && !confirmation)) {
+      if (!document.activeElement || document.activeElement === document.body) {
+        const target = document.getElementById(this.toolsReturnFocus)
+        ;(target || document.getElementById("open-tools"))?.focus()
+      }
+    }
+    this.toolsMounted = Boolean(tools)
+    this.inspectorMounted = Boolean(inspector)
+    this.confirmationMounted = Boolean(confirmation)
+    this.clearMounted = Boolean(clear)
+    if (this.pendingFocus) {
+      const target = document.getElementById(this.pendingFocus)
+      if (target) {
+        target.focus()
+        this.pendingFocus = null
+      }
+    }
   },
 
   syncWiring() {
@@ -205,13 +262,14 @@ export default {
     const pointer = {x: event.clientX, y: event.clientY}
     const socket = event.target.closest("[data-source], [data-after-source]")
 
+    if (event.target.closest("[data-canvas-control]")) return
     if (socket) {
       event.preventDefault()
       this.beginWire(socket, pointer, event.pointerId)
     } else if (this.canvas.contains(event.target)) {
       const card = event.target.closest("article[data-node]")
       if (card) this.beginCard(card, event.target, pointer, event.pointerId)
-      else this.gesture = {kind: "pan", pointer, start: pointer, pointerId: event.pointerId, moved: false}
+      else if (!event.target.closest(CANVAS_CONTROLS)) this.gesture = {kind: "pan", pointer, start: pointer, pointerId: event.pointerId, moved: false}
     }
   },
 
@@ -294,6 +352,10 @@ export default {
 
     if (gesture.kind === "card") this.releaseCard(gesture)
     else if (gesture.kind === "wire") this.dropWire(gesture, event)
+    else if (!gesture.moved && !Drag.pastThreshold(gesture.start, {x: event.clientX, y: event.clientY}) &&
+      this.canvas.contains(event.target) && !event.target.closest(`article[data-node], ${CANVAS_CONTROLS}`)) {
+      this.push("deselect_node", {})
+    }
     this.endWire(gesture)
     this.sync()
     this.scheduleDraw()
@@ -330,8 +392,24 @@ export default {
     event.preventDefault()
   },
 
+  zoomControl(event) {
+    const button = event.target.closest("button[data-zoom-action]")
+    if (!button || !this.canvas.contains(button)) return
+    event.preventDefault()
+    if (this.gesture) return
+    const action = button.dataset.zoomAction
+    if (action === "reset") this.view = initial()
+    else if (action === "in" || action === "out") {
+      const rect = this.canvas.getBoundingClientRect()
+      this.view = zoomAt(this.view, {x: rect.width / 2, y: rect.height / 2}, this.view.zoom * (action === "in" ? 1.25 : 1 / 1.25))
+    } else return
+    this.sync()
+    this.scheduleDraw()
+  },
+
   onWheel(event) {
     event.preventDefault()
+    if (this.gesture) return
     const rect = this.canvas.getBoundingClientRect()
     this.view = wheel(this.view, event, {x: event.clientX - rect.left, y: event.clientY - rect.top})
     this.sync()
@@ -468,16 +546,23 @@ export default {
 
   // A confirmation handles its own Escape, with `phx-window-keydown`.
   escape(event) {
+    const confirmation = Boolean(document.getElementById("confirm-replace-literal"))
+    // Both pickers are covered by the confirmation. Its separate window listener
+    // must be the only one to act on this key, preserving their pending state.
+    const picker = !confirmation && ESCAPE_BUTTONS.picker
+      .map(id => document.getElementById(id)).find(Boolean)
     const action = escapeAction({
-      picker: ESCAPE_BUTTONS.picker.some(id => document.getElementById(id)),
-      confirmation: Boolean(document.getElementById("confirm-replace-literal")),
+      picker: Boolean(picker),
+      confirmation,
       gesture: Boolean(this.gesture),
+      tools: Boolean(document.getElementById("composer-tools")),
       selection: Boolean(document.getElementById("deselect-node")),
       editable: isEditable(event.target),
     })
 
     if (action === "gesture") this.cancelGesture()
-    else if (action === "picker" || action === "selection") {
+    else if (action === "picker") picker.click()
+    else if (action === "tools" || action === "selection") {
       ESCAPE_BUTTONS[action].map(id => document.getElementById(id)).find(Boolean)?.click()
     }
   },

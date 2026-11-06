@@ -14,6 +14,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
   defp open(conn, document \\ scenario_a()) do
     draft = draft!(document)
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    render_click(element(view, "#open-tools"))
     {draft, view}
   end
 
@@ -286,6 +287,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
 
       saved = draft!(document)
       {:ok, view, _html} = live(conn, ~p"/composer/#{saved.id}/stages/prepare")
+      render_click(element(view, "#open-tools"))
 
       assert has_element?(
                view,
@@ -313,6 +315,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
     defp open_second(conn) do
       draft = draft!(across())
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/second")
+      render_click(element(view, "#open-tools"))
       {draft, view}
     end
 
@@ -337,6 +340,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
 
       document = edit_all(across(), [{:set_next, "second", "main"}])
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft!(document).id}/stages/second")
+      render_click(element(view, "#open-tools"))
       assert has_element?(view, "#prior-resolve_worktree-generation", "earlier generation")
     end
 
@@ -378,9 +382,18 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
 
       draft = draft!(document)
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/second")
+      render_click(element(view, "#open-tools"))
       before = saved_document(draft)
-
-      click(view, "#rel-bind-worktree_directory-worktree-delete")
+      version = lock(draft)
+      click(view, "#close-tools")
+      render_hook(view, "clear_input", %{"node" => "worktree_directory", "field" => "worktree"})
+      assert has_element?(view, "#composer-tools #clear-preview")
+      refute has_element?(view, "#right-rail")
+      click(view, "#close-tools")
+      click(view, "#open-tools")
+      assert has_element?(view, "#clear-preview")
+      assert lock(draft) == version
+      refute has_element?(view, "#undo:not([disabled])")
       assert has_element?(view, "#clear-warnings", "Any")
       assert saved_document(draft) == before
 
@@ -399,6 +412,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
     test "clearing a binding nothing depends on just clears", %{conn: conn} do
       draft = draft!(scenario_a())
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/prepare")
+      render_click(element(view, "#open-tools"))
 
       click(view, "#rel-bind-ask_claude-context-delete")
 
@@ -423,6 +437,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
 
       draft = draft!(document)
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/second")
+      render_click(element(view, "#open-tools"))
 
       assert has_element?(view, "#field-worktree_directory-worktree-unresolved")
       assert has_element?(view, "#issue-count")

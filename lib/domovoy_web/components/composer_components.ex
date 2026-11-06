@@ -51,6 +51,8 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :stage, :string, default: nil
   attr :validity, :map, default: nil
   attr :undo?, :boolean, required: true
+  attr :tools_open?, :boolean, required: true
+  attr :issue_count, :integer, required: true
 
   def composer_header(assigns) do
     assigns = assign(assigns, primary: @primary, secondary: @secondary)
@@ -107,6 +109,17 @@ defmodule DomovoyWeb.ComposerComponents do
         >
           {@validity.fingerprint}
         </code>
+        <button
+          id="open-tools"
+          type="button"
+          phx-click="open_tools"
+          aria-expanded={to_string(@tools_open?)}
+          aria-controls="composer-tools"
+          class={@secondary}
+        >
+          <.icon name="hero-adjustments-horizontal" class="size-4" /> Issues / Tools
+          <span id="tools-issue-count">{@issue_count}</span>
+        </button>
         <button id="undo" type="button" phx-click="undo" disabled={not @undo?} class={@secondary}>
           Undo
         </button>
@@ -621,6 +634,47 @@ defmodule DomovoyWeb.ComposerComponents do
         </div>
         {render_slot(@inner_block)}
       </div>
+      <div
+        id="canvas-zoom"
+        role="group"
+        aria-label="Canvas zoom"
+        data-canvas-control
+        class="soft-panel absolute bottom-3 right-3 z-20 flex items-center gap-1 p-1.5 text-xs"
+      >
+        <button
+          id="canvas-zoom-out"
+          type="button"
+          aria-label="Zoom out"
+          data-zoom-action="out"
+          class="soft-btn flex size-8 cursor-pointer items-center justify-center disabled:opacity-40"
+        >
+          <.icon name="hero-minus" class="size-4" />
+        </button>
+        <output
+          id="canvas-zoom-percent"
+          aria-label="Canvas zoom percentage"
+          aria-live="polite"
+          class="min-w-12 text-center tabular-nums"
+        >100%</output>
+        <button
+          id="canvas-zoom-in"
+          type="button"
+          aria-label="Zoom in"
+          data-zoom-action="in"
+          class="soft-btn flex size-8 cursor-pointer items-center justify-center disabled:opacity-40"
+        >
+          <.icon name="hero-plus" class="size-4" />
+        </button>
+        <button
+          id="canvas-zoom-reset"
+          type="button"
+          aria-label="Reset canvas view"
+          data-zoom-action="reset"
+          class="soft-btn ml-1 cursor-pointer h-8 px-3"
+        >
+          Reset
+        </button>
+      </div>
       <p
         id="canvas-notice"
         phx-update="ignore"
@@ -1026,8 +1080,12 @@ defmodule DomovoyWeb.ComposerComponents do
 
   defp focus_issue(%{node: nil, anchor: anchor}), do: JS.focus(to: "##{anchor}")
 
+  defp focus_issue(%{issue: %{target: {:after, _, _, _}}, node: node, anchor: anchor}) do
+    JS.push("select_node", value: %{node: node, focus: anchor, tools: true})
+  end
+
   defp focus_issue(%{node: node, anchor: anchor}) do
-    "select_node" |> JS.push(value: %{node: node}) |> JS.focus(to: "##{anchor}")
+    JS.push("select_node", value: %{node: node, focus: anchor})
   end
 
   @doc """
@@ -1136,7 +1194,7 @@ defmodule DomovoyWeb.ComposerComponents do
           <button
             id="confirm-replace-literal-button"
             type="button"
-            phx-click="confirm_replace_literal"
+            phx-click={JS.push("confirm_replace_literal") |> JS.pop_focus()}
             class={@primary}
           >
             Replace

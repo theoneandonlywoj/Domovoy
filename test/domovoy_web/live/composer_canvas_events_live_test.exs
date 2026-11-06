@@ -31,6 +31,45 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
     lock
   end
 
+  test "both levels expose accessible local zoom controls outside the world", %{conn: conn} do
+    draft = draft!(scenario_a())
+    before = saved_document(draft)
+    version = lock(draft)
+
+    for path <- [~p"/composer/#{draft.id}", ~p"/composer/#{draft.id}/stages/prepare"] do
+      {:ok, view, _html} = live(conn, path)
+
+      assert has_element?(
+               view,
+               "#stage-canvas > #canvas-zoom[role='group'][aria-label='Canvas zoom'][data-canvas-control]"
+             )
+
+      assert has_element?(
+               view,
+               "#canvas-zoom-out[type='button'][aria-label='Zoom out'][data-zoom-action='out']"
+             )
+
+      assert has_element?(view, "#canvas-zoom-percent[aria-live='polite']", "100%")
+
+      assert has_element?(
+               view,
+               "#canvas-zoom-in[type='button'][aria-label='Zoom in'][data-zoom-action='in']"
+             )
+
+      assert has_element?(
+               view,
+               "#canvas-zoom-reset[type='button'][aria-label='Reset canvas view'][data-zoom-action='reset']"
+             )
+
+      refute has_element?(view, "#stage-world #canvas-zoom")
+      refute has_element?(view, "#canvas-zoom [phx-click]")
+      refute has_element?(view, "#undo:not([disabled])")
+    end
+
+    assert saved_document(draft) == before
+    assert lock(draft) == version
+  end
+
   describe "node_moved" do
     test "saves the position, a remount shows it, and identity and validity hold", %{conn: conn} do
       {draft, view} = open(conn)
@@ -224,6 +263,7 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
       node = saved_document(draft)["vertices"]["prepare"]["nodes"]["detect_mise"]
       assert node["after"] == ["resolve_worktree"]
       assert node["inputs"] == inputs
+      render_click(element(view, "#open-tools"))
       assert has_element?(view, "#rel-after-detect_mise-resolve_worktree")
     end
   end
@@ -356,5 +396,84 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
     view |> element("#deselect-node") |> render_click()
 
     refute has_element?(view, "#inspector-runner")
+  end
+
+  test "inspector releases its column and Tools is independent on both levels", %{conn: conn} do
+    draft = draft!(scenario_a())
+    before = saved_document(draft)
+    version = lock(draft)
+
+    for {path, node} <- [
+          {~p"/composer/#{draft.id}", "vertex-prepare"},
+          {~p"/composer/#{draft.id}/stages/prepare", "node-ask_claude"}
+        ] do
+      {:ok, view, _html} = live(conn, path)
+      refute has_element?(view, "#right-rail")
+
+      assert has_element?(
+               view,
+               "#open-tools[aria-expanded='false'][aria-controls='composer-tools']"
+             )
+
+      render_click(element(view, "#open-tools"))
+      assert has_element?(view, "#composer-tools #issues")
+      refute has_element?(view, "#right-rail")
+      render_click(element(view, "#close-tools"))
+      refute has_element?(view, "#composer-tools")
+      render_click(element(view, "##{node}-select"))
+      assert has_element?(view, "#right-rail #deselect-node")
+      render_click(element(view, "#deselect-node"))
+      refute has_element?(view, "#right-rail")
+      render_hook(view, "select_node", %{"node" => "gone"})
+      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#undo:not([disabled])")
+    end
+
+    assert saved_document(draft) == before
+    assert lock(draft) == version
+  end
+
+  test "input Connect-to opens Tools without selection and preserves unresolved controls", %{
+    conn: conn
+  } do
+    {draft, view} = open(conn)
+    before = saved_document(draft)
+    version = lock(draft)
+    render_click(element(view, "#input-worktree_name-connect"))
+    assert has_element?(view, "#composer-tools #connect-to")
+    refute has_element?(view, "#right-rail")
+    render_click(element(view, "#close-tools"))
+    refute has_element?(view, "#composer-tools")
+    render_click(element(view, "#open-tools"))
+    assert has_element?(view, "#connect-resolve_worktree-worktree_name")
+    render_click(element(view, "#connect-close"))
+    refute has_element?(view, "#connect-to")
+    assert saved_document(draft) == before
+    assert lock(draft) == version
+    refute has_element?(view, "#undo:not([disabled])")
+  end
+
+  test "switching nodes, deselection, navigation and removal leave only valid inspectors", %{
+    conn: conn
+  } do
+    draft = draft!(scenario_a())
+
+    for {path, first, second, remove} <- [
+          {~p"/composer/#{draft.id}", "vertex-prepare", "vertex-review", "remove-vertex"},
+          {~p"/composer/#{draft.id}/stages/prepare", "node-ask_claude", "node-detect_mise",
+           "remove-node"}
+        ] do
+      {:ok, view, _html} = live(conn, path)
+      render_click(element(view, "##{first}-select"))
+      assert has_element?(view, "##{first}-select[aria-pressed='true']")
+      render_click(element(view, "##{second}-select"))
+      assert has_element?(view, "##{second}-select[aria-pressed='true']")
+      assert has_element?(view, "#right-rail")
+      render_hook(view, "deselect_node", %{})
+      refute has_element?(view, "#right-rail")
+      render_click(element(view, "##{second}-select"))
+      render_click(element(view, "##{remove}"))
+      refute has_element?(view, "#right-rail")
+    end
   end
 end

@@ -16,6 +16,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
   defp open(conn, document) do
     draft = draft!(document)
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/main")
+    render_click(element(view, "#open-tools"))
     {draft, view}
   end
 
@@ -48,6 +49,10 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
       assert has_element?(view, "#field-resolve-worktree_name[tabindex='-1']")
       assert has_element?(view, "#rel-after-detect-gone[tabindex='-1']")
 
+      click(view, "#issues a[href='#rel-after-detect-gone']")
+      assert has_element?(view, "#composer-tools #rel-after-detect-gone")
+      assert has_element?(view, "#right-rail")
+      assert_push_event(view, "composer:focus", %{id: "rel-after-detect-gone"})
       click(view, "#validate")
       refute has_element?(view, "#definition-valid")
     end
@@ -58,6 +63,8 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
       view |> element("#issue-0 a") |> render_click()
 
       assert has_element?(view, "#inspector-runner-label", "Git WorktreeResolve")
+      refute has_element?(view, "#composer-tools")
+      assert_push_event(view, "composer:focus", %{id: "field-resolve-worktree_name"})
     end
 
     test "a blank default bound to a required field shows on that field", %{conn: conn} do
@@ -97,6 +104,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
 
       draft = draft!(scenario_a())
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/prepare")
+      render_click(element(view, "#open-tools"))
 
       assert has_element?(view, "#issues-empty")
       click(view, "#validate")
@@ -133,6 +141,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
     assert saved_document(draft)["vertices"]["main"]["nodes"]["resolve"]
 
     {:ok, reloaded, _html} = live(conn, ~p"/composer/#{draft.id}/stages/main")
+    render_click(element(reloaded, "#open-tools"))
     assert has_element?(reloaded, "#node-resolve")
     assert has_element?(reloaded, "#issues li")
   end

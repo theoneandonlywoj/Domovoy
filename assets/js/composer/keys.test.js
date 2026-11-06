@@ -16,16 +16,17 @@ test("Cmd or Ctrl+Z is undo, and with Shift it isn't", () => {
   assert.equal(isUndo({key: "z"}), false)
 })
 
-test("Escape closes the picker, then the confirmation, the gesture, the selection", () => {
-  const all = {picker: true, confirmation: true, gesture: true, selection: true, editable: false}
+test("Escape closes the picker, then the confirmation, the gesture, idle Tools, the selection", () => {
+  const all = {picker: true, confirmation: true, gesture: true, tools: true, selection: true, editable: false}
   assert.equal(escapeAction(all), "picker")
   assert.equal(escapeAction({...all, picker: false}), "confirmation")
   assert.equal(escapeAction({...all, picker: false, confirmation: false}), "gesture")
-  assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false}), "selection")
+  assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false}), "tools")
+  assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false, tools: false}), "selection")
   assert.equal(escapeAction({}), null)
 })
 
 test("Escape while typing keeps the selection, but still cancels a gesture", () => {
-  assert.equal(escapeAction({selection: true, editable: true}), null)
+  assert.equal(escapeAction({tools: true, selection: true, editable: true}), null)
   assert.equal(escapeAction({gesture: true, selection: true, editable: true}), "gesture")
 })

@@ -155,3 +155,89 @@ In `screenshots/`: `02-mid-drag`, `04-preview`, `05-hover-refused`, `06-rejectio
 `07-hover-fits`, `09-picker`, `10-after-hover`, `12-confirm-literal`, `13-hyphens`,
 `14-workflow`, `15-stage-walked`, `20-home`, `21-stage-mid-connect`, `22-dialog`,
 `23-draft-list`. `14` and `20` onward show the dark theme; the rest predate it.
+
+## Contextual inspector and Issues/Tools — phase 1, 2026-11-05
+
+Fresh observations against this phase on port 4010, headless Chrome 156 at
+1600x1000 through CDP, using a disposable draft created through the UI. Pointer
+press/move/release and keyboard input were trusted browser events. Native select
+values used the browser's `change` event. No physical mouse/trackpad or touch was
+used. Earlier results above are historical and do not establish this phase.
+
+| Check | Fresh result |
+|---|---|
+| Workflow reclaimed width | Pass: canvas 1248px unselected, 848px selected, 1248px after an unmoved blank click; no right rail before/after. |
+| Stage reclaimed width | Pass: 1248px unselected, 848px selected, 1248px after Close and after an unmoved blank click. |
+| Independent Tools keyboard access | Pass: Enter on `open-tools` mounts the panel and focuses `close-tools`; Escape closes it and returns focus to `open-tools`. |
+| Edit and Escape | Pass: typing `branch` in `literal-resolve-worktree_name_value` and Escape keeps the inspector and input focus; blur saves the value. Canvas Escape closes selection. |
+| Pan and drag | Pass on stage: background pan to `translate(40px, 20px) scale(1)` keeps selection. Card drag by (+55,+35) saves directory at (575,115), with selection intact. |
+| Wire cancellation | Pass on stage: press output socket, move, Escape, release; after the scheduled draw there is no preview/gesture and selection remains. |
+| Connect-to without selection | Pass: source Connect-to opens Tools without an inspector; Tools Close returns focus to the initiating source button; reopening restores unresolved Connect-to. |
+| Replacement cancellation | Pass after correction: dialog focuses Cancel; Escape returns focus to `connect-resolve-worktree_name`, keeps Tools/Connect-to/selection and the literal. The first implementation also closed Connect-to; the hook now excludes the covered connection picker from Escape arbitration, and the exact check was repeated. |
+| Replacement confirmation | Pass: Replace changes the field to `reads name`, keeps Tools/selection and returns focus to `input-name-connect` after the target disappears. |
+| Node issue focus | Pass: opening Tools then its field issue selects resolve, closes Tools and focuses visible `field-resolve-worktree_name`. |
+| Relationship issue focus/delete | Pass: unresolved After issue selects directory, keeps Tools and focuses `rel-after-directory-resolve`; its delete control removes the relationship. |
+| Choice issue focus | Pass: after deselection, a workflow issue selects review, mounts its inspector, closes Tools and focuses visible `choice-review-bad`. |
+| Cross-level issue navigation | Pass: workflow node issue reaches `stage:main`; stage choice issue reaches workflow. |
+| Stage wire alignment | Pass: both ends of both value wires measure 0.00px from socket centres with inspector, after dismissal, after Validate and after saved card drag. |
+| Workflow wire alignment | Pass: route wire ends measure 0.00px with inspector, after dismissal and after Validate. |
+
+No application exception was observed in these walkthroughs. Temporary CDP driver
+errors (missing Enter character text, appending to a prefilled name, selector quoting,
+and observing before a patch/draw completed) were corrected in the driver and the
+corresponding observations repeated. The browser draft is
+`e209de56-4424-41bb-abd4-7d4f1f2b781d`.
+
+Limits: warning-producing clear previews and their focus return, workflow pan/drag/
+wire cancellation, and physical-device behavior were not walked in this fresh browser
+run. Clear preview auto-opening, close/reopen retention, cancel/confirm effects and
+view-only document/lock/history invariants are covered by the focused LiveView tests;
+gesture exclusions/cancellations and Escape priorities are covered by hook tests.
+Those tests do not establish the unobserved browser claims.
+
+## Phase 1 Escape retry — 2026-11-05
+
+Fresh retry observations used the same isolated port 4010 server and headless
+Chrome 156 at 1600x1000 through CDP, with trusted keyboard and pointer input.
+The earlier replacement-cancellation result above covered Connect-to alone; it
+did not cover a pending catalog choice mounted alongside the confirmation.
+
+| Check | Retry observation |
+|---|---|
+| Overlapping catalog choice and replacement confirmation, before correction | **Behavioral red:** pick Git WorktreeDirectory without adding it, enter `pending_directory`, then use input `name` Connect-to on literal-backed `resolve.worktree_name`. One Escape canceled the confirmation **and clicked `close-picker`**, removing the choice and add form. Tools, Connect-to, selection and literal `branch` remained. |
+| Same overlap after correction | **Pass:** one Escape removed only the confirmation; Git WorktreeDirectory, `pending_directory`, Connect-to, Tools, selected resolve and literal `branch` remained. No picker click occurred, and focus returned to visible `connect-resolve-worktree_name`. |
+| Underlying Escape behavior after cancellation | **Pass:** subsequent individual Escapes closed Connect-to, the catalog picker, Tools and selection, in that order; each lower surface remained until its own key. |
+| Workflow and stage width | **Pass:** each measured 1248px initially, 848px selected, 1248px after unmoved blank click. |
+| Tools keyboard focus on both levels | **Pass:** Enter on `open-tools` focused `close-tools`; Escape removed Tools and focused `open-tools`. |
+| Editable-field Escape | **Pass:** Escape in `literal-resolve-worktree_name_value` preserved its focus and inspector. |
+| Stage wire after resize and Validate | **Pass:** both ends of the resolve-to-directory value wire measured 0.00px from socket centers with inspector, after dismissal and after Validate. |
+
+Evidence files: `/private/tmp/sidebar-phase1-retry-escape.mjs` and
+`/private/tmp/sidebar-phase1-retry-smoke.mjs`; logs
+`/private/tmp/sidebar-phase1-retry-browser-red.log`,
+`/private/tmp/sidebar-phase1-retry-browser-green.log` and
+`/private/tmp/sidebar-phase1-retry-smoke.log`. The red driver initially clicked
+Validate before inspecting focus; that focus observation is not used as evidence.
+The green driver inspects focus after the cancellation patch and two animation
+frames, without that focus-changing click. Both runs asserted preservation of
+the same pending catalog form and covered surfaces. Disposable draft IDs:
+red `1cc258ff-f579-447c-8a1d-a6648dd7cba8`, green/smoke
+`3f913598-510e-473d-acab-5bbb5095462b`. Neither successful driver reported a page
+exception.
+
+The updated hook regression also failed against an isolated copy of the retry
+baseline hook (8 passed, 1 failed: unexpected `close-picker` click) and passes
+with the correction. Final checks: `make test-js` (52 passed), the four focused
+phase 1 LiveView files (100 passed), and `mix precommit` (489 passed; no Credo
+findings). Logs are `/private/tmp/sidebar-phase1-retry-js-red.log`,
+`/private/tmp/sidebar-phase1-retry-js-green.log`,
+`/private/tmp/sidebar-phase1-retry-focused.log` and
+`/private/tmp/sidebar-phase1-retry-precommit.log`. Initial sandbox-only browser
+and Mix attempts failed with local-network/TCP-lock `EPERM`; reruns with local
+access succeeded. Those setup failures are not behavioral red evidence.
+
+Limits: this bounded retry did not repeat browser drag/pan/wire cancellation,
+node/choice/relationship issue focus or cross-level navigation, replacement
+confirmation by Replace, workflow wire measurements, warning-producing clear
+preview focus, or physical-device checks. Earlier observations remain historical;
+the focused automated tests do not establish these unobserved browser claims.
