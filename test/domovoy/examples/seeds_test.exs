@@ -4,10 +4,18 @@ defmodule Domovoy.Examples.SeedsTest do
   import ExUnit.CaptureIO
 
   alias Domovoy.Composer
+  alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Issue
   alias Domovoy.Examples.Seeds
 
   @engine_names ["cracow_prices", "create_worktree"]
+
+  # `make db-seed-test` commits the seeds to this database, outside the sandbox. These
+  # tests count on starting without them; the delete rolls back with the test.
+  setup do
+    Repo.delete_all(Draft)
+    :ok
+  end
 
   # The real file, as `mix run priv/repo/seeds.exs` reads it.
   defp run_seeds do
