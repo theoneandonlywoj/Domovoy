@@ -4,6 +4,7 @@ defmodule Domovoy.Examples.SeedsTest do
   import ExUnit.CaptureIO
 
   alias Domovoy.Composer
+  alias Domovoy.Composer.Document
   alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Issue
   alias Domovoy.Examples.Seeds
@@ -71,6 +72,16 @@ defmodule Domovoy.Examples.SeedsTest do
 
     assert length(drafts()) == 3
     assert {:ok, ^user_draft} = Composer.get_draft(user_draft.id)
+  end
+
+  test "a kept draft without descriptions isn't backfilled" do
+    {:ok, created} = Composer.create_draft("Mine", Document.new("create_worktree"))
+    {:ok, kept} = Composer.save_document(created, created.document)
+
+    assert {"create_worktree", :kept} in Seeds.run()
+
+    assert {:ok, ^kept} = Composer.get_draft(kept.id)
+    assert Jason.encode!(draft("create_worktree").document) == Jason.encode!(kept.document)
   end
 
   describe "a definition failing validation" do

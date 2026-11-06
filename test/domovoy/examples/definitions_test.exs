@@ -3,12 +3,14 @@ defmodule Domovoy.Examples.DefinitionsTest do
   use ExUnit.Case, async: false
 
   alias Domovoy.Composer
+  alias Domovoy.Composer.Document
   alias Domovoy.Examples.Cracow
   alias Domovoy.Examples.Definitions
   alias Domovoy.Examples.Worktree
   alias Domovoy.NoExecutionTrace
   alias DomovoyCore.Choice
   alias DomovoyCore.Decision
+  alias DomovoyCore.Definition
   alias DomovoyCore.Graph
   alias DomovoyCore.Node
   alias DomovoyCore.Stage
@@ -31,6 +33,35 @@ defmodule Domovoy.Examples.DefinitionsTest do
     assert report.forbidden_calls == []
 
     workflow
+  end
+
+  # The seed without what its description ops wrote, to compare with the notebook.
+  defp strip_descriptions(document) do
+    document
+    |> Map.update!("inputs", &strip_metadata/1)
+    |> Map.update!("vertices", fn vertices ->
+      vertices |> strip_metadata() |> Map.new(&strip_nodes/1)
+    end)
+  end
+
+  defp strip_nodes({name, %{"nodes" => nodes} = stage}),
+    do: {name, %{stage | "nodes" => strip_metadata(nodes)}}
+
+  defp strip_nodes(decision), do: decision
+
+  defp strip_metadata(items),
+    do: Map.new(items, fn {name, item} -> {name, Map.delete(item, "metadata")} end)
+
+  # Every item a seed describes, by kind.
+  defp described_items(document) do
+    nodes =
+      for {_stage, %{"nodes" => nodes}} <- document["vertices"], {_name, node} <- nodes, do: node
+
+    %{
+      nodes: nodes,
+      vertices: Map.values(document["vertices"]),
+      inputs: Map.values(document["inputs"])
+    }
   end
 
   # The vertices as each notebook's cells build them, with its node validators.
@@ -196,7 +227,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
 
   describe "the seeded definitions" do
     test "create_worktree is valid and equals its notebook" do
-      workflow = valid_workflow(Definitions.create_worktree())
+      workflow = valid_workflow(strip_descriptions(Definitions.create_worktree()))
 
       assert workflow.name == "create_worktree"
       assert workflow.start == "inspect"
@@ -210,7 +241,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
     end
 
     test "cracow_prices is valid and equals its notebook" do
-      workflow = valid_workflow(Definitions.cracow_house_price())
+      workflow = valid_workflow(strip_descriptions(Definitions.cracow_house_price()))
 
       assert workflow.name == "cracow_prices"
       assert workflow.start == "estimate_price"
@@ -237,6 +268,62 @@ defmodule Domovoy.Examples.DefinitionsTest do
             end
 
           assert_left_to_right(document["layout"]["stages"][stage], sources, 320)
+        end
+      end
+    end
+  end
+
+  describe "the seeded descriptions" do
+    test "cover all 14 nodes, 6 vertices and 10 inputs, in distinct 1 to 3 sentences" do
+      items = Enum.map(Definitions.all(), &described_items(&1.document))
+      count = fn kind -> items |> Enum.map(&length(&1[kind])) |> Enum.sum() end
+
+      assert {count.(:nodes), count.(:vertices), count.(:inputs)} == {14, 6, 10}
+
+      texts =
+        for item_kinds <- items, {_kind, kind_items} <- item_kinds, item <- kind_items do
+          assert {:ok, text} = Document.description(item)
+          text
+        end
+
+      assert length(texts) == 30
+      assert Enum.uniq(texts) == texts
+
+      for text <- texts do
+        assert String.ends_with?(text, "."), text
+        assert length(String.split(text, ~r/\.(\s|$)/, trim: true)) in 1..3, text
+      end
+    end
+
+    test "keep the seeds valid, with the fingerprint root they have without them" do
+      for %{document: document} <- Definitions.all() do
+        workflow = valid_workflow(document)
+        plain = valid_workflow(strip_descriptions(document))
+
+        assert Definition.fingerprint(workflow).root == Definition.fingerprint(plain).root
+      end
+    end
+
+    test "export on each node and vertex, and leave inputs and workflow metadata alone" do
+      for %{document: document} <- Definitions.all() do
+        workflow = valid_workflow(document)
+
+        for {name, vertex} <- document["vertices"] do
+          built = workflow.vertices[name]
+          assert {:ok, text} = Document.description(vertex)
+          assert built.metadata == %{"description" => text}
+
+          for {node_name, node} <- Map.get(vertex, "nodes", %{}) do
+            assert {:ok, node_text} = Document.description(node)
+            assert built.graph.nodes_by_name[node_name].metadata == %{"description" => node_text}
+          end
+        end
+
+        assert Map.keys(workflow.metadata) == ["domovoy_editor"]
+
+        for {_name, input} <- workflow.inputs do
+          refute Map.has_key?(input, :metadata)
+          refute Map.has_key?(input, "metadata")
         end
       end
     end
