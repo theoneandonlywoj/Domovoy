@@ -21,6 +21,28 @@ test("Ctrl or Cmd with the wheel zooms at the pointer", () => {
   }
 })
 
+test("wheel zoom lands on 5% steps, and a pinch's small deltas add up to one", () => {
+  const point = {x: 100, y: 100}
+  const pinch = (view, deltaY) => wheel(view, {deltaX: 0, deltaY, ctrlKey: true}, point)
+  assert.equal(pinch(initial(), -100).zoom, 1.2)
+
+  let view = initial()
+  const seen = new Set()
+  for (let i = 0; i < 20; i++) {
+    view = pinch(view, -4)
+    seen.add(view.zoom)
+  }
+  assert.deepEqual([...seen], [1, 1.05, 1.1, 1.15])
+})
+
+test("wheel zoom held at a limit reverses at once", () => {
+  const pinch = (view, deltaY) => wheel(view, {deltaX: 0, deltaY, ctrlKey: true}, {x: 0, y: 0})
+  let view = initial()
+  for (let i = 0; i < 50; i++) view = pinch(view, -100)
+  assert.equal(view.zoom, 2)
+  assert.equal(pinch(view, 100).zoom, 1.65)
+})
+
 test("the transform translates then scales", () => {
   assert.equal(transform({x: 1, y: 2, zoom: 0.5}), "translate(1px, 2px) scale(0.5)")
 })

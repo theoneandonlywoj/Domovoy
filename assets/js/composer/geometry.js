@@ -6,6 +6,9 @@ export const MAX_ZOOM = 2
 
 export const clampZoom = zoom => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
 
+// The nearest level the zoom slider can show, in steps of 5%.
+export const snapZoom = zoom => clampZoom(Math.round(zoom * 20) / 20)
+
 export const screenToWorld = (view, point) => ({
   x: (point.x - view.x) / view.zoom,
   y: (point.y - view.y) / view.zoom,
