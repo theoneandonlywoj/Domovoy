@@ -1,5 +1,5 @@
 defmodule Domovoy.CoreContractTest do
-  # Pins the Core 0.3.2 behaviour the composer relies on. Nothing here runs a
+  # Pins the Core 0.3.4 behaviour the composer relies on. Nothing here runs a
   # node or starts DomovoyCore.Runtime; a failure means a pin moved.
   use ExUnit.Case, async: true
 
@@ -21,8 +21,8 @@ defmodule Domovoy.CoreContractTest do
   alias DomovoyMisePlugin.Runner.Trust
   alias DomovoyMisePlugin.Type.Executable
 
-  test "the host runs Core 0.3.2" do
-    assert Application.spec(:domovoy_core, :vsn) == ~c"0.3.2"
+  test "the host runs Core 0.3.4" do
+    assert Application.spec(:domovoy_core, :vsn) == ~c"0.3.4"
   end
 
   describe "scenario A" do

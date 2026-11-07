@@ -48,7 +48,7 @@ defmodule Domovoy.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:domovoy_core, github: "theoneandonlywoj/Domovoy-Core", tag: "v0.3.2", override: true},
+      {:domovoy_core, github: "theoneandonlywoj/Domovoy-Core", tag: "v0.3.4", override: true},
       {:domovoy_git_plugin,
        github: "theoneandonlywoj/Domovoy-Git-Plugin",
        ref: "5de98084adaa7b807bb904bfc7b3f46059333209"},
