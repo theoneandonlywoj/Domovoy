@@ -381,8 +381,66 @@
 [data-wiring] [data-drop-hover] { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 [data-wiring] [data-drop-hover="refused"] { outline-color: var(--color-error); }
 
+/* A run on the canvas. Status is an outline, which takes no layout space, and a word. */
+:root {
+  --run-running: #7aa2f7;
+  --run-done: #9ece6a;
+  --run-attention: #e0af68;
+  --run-failed: #f7768e;
+}
+article[data-run-status="running"] { outline: 2px solid var(--run-running); }
+article[data-run-status="succeeded"] { outline: 1px solid var(--run-done); }
+article[data-run-status="needs_you"] {
+  outline: 2px solid var(--run-attention);
+  outline-offset: 2px;
+  animation: run-pulse 400ms ease-out 1;
+}
+article[data-run-status="uncertain"] { outline: 2px dashed var(--run-attention); }
+article[data-run-status="failed"] { outline: 2px solid var(--run-failed); }
+article[data-run-status="interrupted"],
+article[data-run-status="cancelled"],
+article[data-run-status="skipped"],
+article[data-run-status="unknown"] { outline: 1px dashed var(--color-muted); }
+[data-read-only] article:not([data-run-status]) header .font-semibold { color: var(--color-muted); }
+
+.run-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  background-color: var(--color-sunken);
+  padding: 0 0.5rem;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+.run-pill-card { position: absolute; top: -0.6rem; right: 0.75rem; z-index: 2; }
+.run-pill[data-run-pill="running"] { color: var(--run-running); }
+.run-pill[data-run-pill="succeeded"] { color: var(--run-done); }
+.run-pill[data-run-pill="needs_you"], .run-pill[data-run-pill="uncertain"] { color: var(--run-attention); }
+.run-pill[data-run-pill="failed"] { color: var(--run-failed); }
+.run-spin { animation: run-spin 1s linear infinite; }
+
+@keyframes run-spin { to { transform: rotate(360deg); } }
+@keyframes run-pulse { from { outline-offset: 6px; } to { outline-offset: 2px; } }
+
+/* The trace: wires the run travelled stand out, and the routes it didn't take recede. */
+[data-read-only] .wire { opacity: 0.35; }
+[data-read-only] .wire[class*="wire-run-"] { opacity: 1; stroke-width: 3; stroke-dasharray: none; }
+.wire-run-running { stroke: var(--run-running); }
+.wire-run-succeeded { stroke: var(--run-done); }
+.wire-run-failed { stroke: var(--run-failed); }
+
+/* A run shows its snapshot: edit controls on cards are hidden, and the Open link stays. */
+[data-read-only] article button:not([data-card-grip]) { display: none; }
+#stage-canvas[data-read-only] article { cursor: default; }
+[data-read-only] .socket { cursor: default; }
+[data-read-only] .socket-out:hover, [data-read-only] .socket[data-after-source]:hover { transform: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .soft-btn, .soft-grip, .soft-link, .socket { transition: none; }
+  .run-spin, article[data-run-status] { animation: none; }
 }
 
 /* Forced colours drop the shadows and the fills: the invisible borders above then show as

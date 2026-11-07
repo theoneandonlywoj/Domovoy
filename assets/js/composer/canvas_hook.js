@@ -252,7 +252,7 @@ export default {
   // Keyed, and writing only what differs, so a redraw changes nothing when nothing moved.
   drawPaths(paths) {
     const existing = new Map([...this.svg.children].map(path => [path.dataset.key, path]))
-    for (const {key, d, kind, problem} of paths) {
+    for (const {key, d, kind, problem, run} of paths) {
       let path = existing.get(key)
       existing.delete(key)
       if (!path) {
@@ -261,7 +261,7 @@ export default {
         this.svg.appendChild(path)
       }
       setAttr(path, "d", d)
-      setAttr(path, "class", `wire wire-${kind}${problem ? " wire-problem" : ""}`)
+      setAttr(path, "class", `wire wire-${kind}${problem ? " wire-problem" : ""}${run ? ` wire-run-${run}` : ""}`)
     }
     for (const path of existing.values()) path.remove()
   },
@@ -281,6 +281,8 @@ export default {
     const socket = event.target.closest("[data-source], [data-after-source]")
 
     if (event.target.closest("[data-canvas-control]")) return
+    // A run is read-only: its sockets and cards start nothing, and the canvas still pans.
+    if (this.readOnly() && (socket || event.target.closest("article[data-node]"))) return
     if (socket) {
       event.preventDefault()
       this.beginWire(socket, pointer, event.pointerId)
@@ -289,6 +291,10 @@ export default {
       if (card) this.beginCard(card, event.target, pointer, event.pointerId)
       else if (!event.target.closest(CANVAS_CONTROLS)) this.gesture = {kind: "pan", pointer, start: pointer, pointerId: event.pointerId, moved: false}
     }
+  },
+
+  readOnly() {
+    return this.canvas.dataset.readOnly !== undefined
   },
 
   beginCard(card, target, pointer, pointerId) {
@@ -559,7 +565,7 @@ export default {
 
   keyDown(event) {
     if (isUndo(event)) {
-      if (!isEditable(event.target) && !document.getElementById("confirm-replace-literal")) {
+      if (!this.readOnly() && !isEditable(event.target) && !document.getElementById("confirm-replace-literal")) {
         event.preventDefault()
         this.push("undo", {})
       }

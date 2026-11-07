@@ -5,7 +5,25 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
   import Domovoy.ComposerFixtures
   import ExUnit.CaptureLog
 
+  import Domovoy.RunCase,
+    only: [
+      setup_runs: 1,
+      start_attrs: 2,
+      open!: 1,
+      await_phase: 2,
+      watch: 1,
+      await_delivered: 1,
+      entered: 1
+    ]
+
+  import Ecto.Query
+
   alias Domovoy.Composer
+  alias Domovoy.Composer.Run
+  alias Domovoy.Composer.RunInputs
+  alias Domovoy.Examples.Definitions
+  alias Domovoy.Repo
+  alias DomovoyCore.Runs, as: CoreRuns
 
   require Logger
 
@@ -138,9 +156,42 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
        }},
       {"edit_choice", %{"decision" => value, "name" => value}},
       {"remove_choice", %{"decision" => "review", "name" => value}},
-      {"remove_choice", %{"decision" => value, "name" => "approve"}}
+      {"remove_choice", %{"decision" => value, "name" => "approve"}},
+      {"open_start", %{"start" => value}},
+      {"submit_start", %{"start" => value}},
+      {"submit_start", %{"start" => %{"worktree_name" => value, "prompt" => value}}},
+      {"confirm_start", %{"start" => value}},
+      {"close_start", %{"start" => value}},
+      {"decide", %{"occurrence" => value, "choice" => value, "inputs" => value}},
+      {"select_run_generation", %{"generation" => value}},
+      {"retry_run_record", %{"anything" => value}}
     ]
   end
+
+  # A review run waiting at its decision, opened on the workflow with it selected.
+  defp waiting_review(conn) do
+    document = Enum.find(Definitions.all(), &(&1.title == "Cracow house price review")).document
+
+    {:ok, values} =
+      RunInputs.parse(document, %{
+        "rooms" => "3",
+        "bathrooms" => "1",
+        "area" => "58.5",
+        "district" => "Krowodrza"
+      })
+
+    draft = draft!(document, "Review")
+    {:ok, run_id} = Composer.start_run(start_attrs(draft, values))
+    handle = open!(run_id)
+    %{awaiting: [%{occurrence: occurrence}]} = await_phase(handle, "waiting")
+
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}?run=#{run_id}&node=review")
+    render_async(view, 5_000)
+    %{view: view, handle: handle, occurrence: occurrence}
+  end
+
+  # Start fields that are no text a form could send.
+  defp hostile_start_values, do: [%{"a" => 1}, ["x"], <<0xFF>>, "a\0b"]
 
   test "on the workflow, a hostile route or a hostile drag leaves the draft alone", %{conn: conn} do
     draft = draft!(scenario_a())
@@ -180,6 +231,123 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
 
     assert {:ok, %{lock_version: ^lock}} = Composer.get_draft(draft.id)
     refute has_element?(view, "#undo:not([disabled])")
+  end
+
+  # The Core run calls any process makes during `fun`, a start's task included.
+  defp core_run_calls(fun) do
+    :erlang.trace_pattern({CoreRuns, :_, :_}, true, [:local])
+    :erlang.trace(:all, true, [:call, {:tracer, self()}])
+
+    try do
+      fun.()
+    after
+      :erlang.trace(:all, false, [:call])
+      :erlang.trace_pattern({CoreRuns, :_, :_}, false, [:local])
+    end
+
+    ref = :erlang.trace_delivered(:all)
+    assert_receive {:trace_delivered, :all, ^ref}
+    drain_calls([])
+  end
+
+  defp drain_calls(names) do
+    receive do
+      {:trace, _pid, :call, {CoreRuns, name, _args}} -> drain_calls([name | names])
+    after
+      0 -> names
+    end
+  end
+
+  describe "with runs on" do
+    setup :setup_runs
+
+    test "start events make no Core call with runs off, and do with them on", %{conn: conn} do
+      draft = draft!(leak_run(), "Leak")
+      Application.put_env(:domovoy, :composer_runs_enabled, false)
+      {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+
+      off =
+        core_run_calls(fn ->
+          for value <- hostile_start_values() ++ ["fine"] do
+            render_hook(view, "open_start", %{})
+
+            render_hook(view, "submit_start", %{
+              "start" => %{"secret" => value, "mode" => "succeed"}
+            })
+
+            render_hook(view, "confirm_start", %{})
+            render_async(view, 5_000)
+            assert has_element?(view, "#composer")
+          end
+        end)
+
+      assert off == []
+      refute has_element?(view, "#start-form")
+      assert Repo.all(from(row in Run, where: row.draft_id == ^draft.id)) == []
+
+      # The control: the same start, with runs on, calls Core.
+      Application.put_env(:domovoy, :composer_runs_enabled, true)
+      {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+
+      on =
+        core_run_calls(fn ->
+          render_hook(view, "open_start", %{})
+          render_hook(view, "submit_start", %{"start" => %{"secret" => "s", "mode" => "succeed"}})
+          render_async(view, 5_000)
+        end)
+
+      assert :start in on
+    end
+
+    test "hostile decide and generation events change nothing in a run", %{conn: conn} do
+      %{view: view, handle: handle, occurrence: occurrence} = waiting_review(conn)
+
+      for value <- hostile_values() do
+        # An undeclared input, under a hostile name or holding a hostile value.
+        named = if is_binary(value), do: [%{value => "x"}], else: []
+
+        for inputs <- [%{"x" => value} | named],
+            params <- [
+              %{"occurrence" => value, "choice" => "accept", "inputs" => %{}},
+              %{"occurrence" => occurrence, "choice" => value, "inputs" => %{}},
+              %{"occurrence" => occurrence, "choice" => "accept", "inputs" => value},
+              %{"occurrence" => occurrence, "choice" => "revise", "inputs" => inputs}
+            ] do
+          render_hook(view, "decide", params)
+          assert has_element?(view, "#composer")
+        end
+
+        render_hook(view, "select_run_generation", %{"generation" => value})
+        render_hook(view, "retry_run_record", %{"generation" => value})
+        assert has_element?(view, "#composer")
+      end
+
+      render_hook(view, "select_run_generation", %{"generation" => "7"})
+      assert has_element?(view, "#run-phase", "waiting")
+      assert {:ok, %{committed_phase: "waiting", generation: 0}} = Composer.run_view(handle)
+    end
+
+    test "hostile start fields are refused by name and start nothing", %{conn: conn} do
+      draft = draft!(leak_run(), "Leak")
+      {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+      render_hook(view, "open_start", %{})
+
+      for value <- hostile_start_values() do
+        render_hook(view, "submit_start", %{"start" => %{"secret" => value, "mode" => "succeed"}})
+        render_hook(view, "confirm_start", %{})
+        render_async(view, 5_000)
+
+        assert has_element?(view, "#start-field-secret .text-error")
+        refute has_element?(view, "#start-form input[name='start[secret]'][value]")
+        assert has_element?(view, "#start-form input[name='start[mode]'][value='succeed']")
+      end
+
+      render_hook(view, "submit_start", %{"start" => "not a map"})
+      render_async(view, 5_000)
+
+      assert has_element?(view, "#start-form")
+      assert Repo.all(from(row in Run, where: row.draft_id == ^draft.id)) == []
+    end
   end
 
   test "NUL, broken text and wrong shapes never reach a name or the title", %{conn: conn} do
@@ -341,6 +509,82 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
 
       assert log =~ "positive-control"
       refute log =~ @sentinel
+    end
+
+    test "a run input stays out of logs and flash, at success and at failure", %{conn: conn} do
+      setup_runs(%{})
+
+      for mode <- ["succeed", "fail"] do
+        draft = draft!(leak_run(), "Leak #{mode}")
+
+        {view, log} =
+          with_log(fn ->
+            {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+            render_async(view, 5_000)
+            view |> element("#start-run") |> render_click()
+
+            view
+            |> form("#start-form", start: %{"secret" => @sentinel, "mode" => mode})
+            |> render_submit()
+
+            render_async(view, 5_000)
+            assert_patch(view)
+            watch(view.pid)
+            render_async(view, 5_000)
+            await_delivered(entered("finished"))
+            Logger.debug("positive-control")
+            view
+          end)
+
+        assert log =~ "positive-control"
+        refute log =~ @sentinel
+
+        assert has_element?(
+                 view,
+                 "#run-outcome",
+                 if(mode == "succeed", do: "succeeded", else: "failed")
+               )
+
+        refute render(view) =~ @sentinel
+      end
+    end
+
+    test "a decision input stays out of logs and flash, answered and refused", %{conn: conn} do
+      setup_runs(%{})
+
+      {view, log} =
+        with_log(fn ->
+          %{view: view, handle: handle, occurrence: occurrence} = waiting_review(conn)
+
+          # Refused by the page: accept declares no input.
+          render_hook(view, "decide", %{
+            "occurrence" => occurrence,
+            "choice" => "accept",
+            "inputs" => %{"district" => @sentinel}
+          })
+
+          assert has_element?(view, "#rejection")
+          render_hook(view, "dismiss_rejection", %{})
+
+          view |> form("#decide-revise", inputs: %{district: @sentinel}) |> render_submit()
+          refute has_element?(view, "#rejection")
+
+          # Refused by Core: the occurrence was answered.
+          render_hook(view, "decide", %{
+            "occurrence" => occurrence,
+            "choice" => "revise",
+            "inputs" => %{"district" => @sentinel}
+          })
+
+          # No district has that name, so the rerun fails on a returned error.
+          assert %{outcome: "failed"} = await_phase(handle, "finished")
+          Logger.debug("positive-control")
+          view
+        end)
+
+      assert log =~ "positive-control"
+      refute log =~ @sentinel
+      refute render(view) =~ @sentinel
     end
   end
 end

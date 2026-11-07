@@ -17,6 +17,8 @@ export function wirePaths(edges, points, cards = []) {
     const to = points[edge.to]
     if (!from || !to) return []
     const d = to.x < from.x ? loopPath(from, to, clearance(from, to, cards)) : cubicPath(from, to)
-    return [{key: `${edge.from}>${edge.to}`, d, kind: edge.kind, problem: edge.problem}]
+    const path = {key: `${edge.from}>${edge.to}`, d, kind: edge.kind, problem: edge.problem}
+    // A run's status, only on a wire the run has travelled.
+    return [edge.run ? {...path, run: edge.run} : path]
   })
 }

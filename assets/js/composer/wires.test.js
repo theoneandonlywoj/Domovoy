@@ -56,3 +56,14 @@ test("a wire to a card further right stays a plain curve between them", () => {
 
   assert.ok(lowestPoint(d) <= 100, d)
 })
+
+test("a travelled wire keeps its run status, and an untravelled one has none", () => {
+  const edges = [
+    {from: "out:a", to: "in:b.f", kind: "value", problem: false, run: "succeeded"},
+    {from: "after-out:a", to: "after-in:b", kind: "after", problem: false},
+  ]
+  const [travelled, untravelled] = wirePaths(edges, points)
+
+  assert.equal(travelled.run, "succeeded")
+  assert.equal("run" in untravelled, false)
+})

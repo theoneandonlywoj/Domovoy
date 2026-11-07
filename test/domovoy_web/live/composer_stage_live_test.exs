@@ -684,7 +684,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
     end
 
     test "the header states the engine target", %{conn: conn} do
-      assert has_element?(open(conn, draft!(scenario_a())), "#engine-target", "Core 0.3.2")
+      assert has_element?(open(conn, draft!(scenario_a())), "#engine-target", "Core 0.3.4")
     end
   end
 

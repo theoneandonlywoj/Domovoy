@@ -531,3 +531,42 @@ test("a Reset during a gesture leaves a fitted view and its fit alone", () => {
   assert.equal(state.fit, fit)
   assert.equal(output.textContent, "150%")
 })
+
+test("read-only: a press on a card or a socket starts no gesture, and the background still pans", () => {
+  const card = {dataset: {node: "a"}}
+  const socket = {dataset: {socket: "out:a", source: "a"}}
+  for (const [name, closest] of [
+    ["card", query => query === "article[data-node]" ? card : null],
+    ["socket", query => query === "[data-source], [data-after-source]" ? socket : null],
+  ]) {
+    const {state, event} = background()
+    state.canvas.dataset.readOnly = ""
+    state.pointerDown({...event, target: {closest}, preventDefault() {}})
+    assert.equal(state.gesture, null, name)
+    assert.deepEqual(state.pushes, [], name)
+  }
+
+  const {state, event} = background()
+  state.canvas.dataset.readOnly = ""
+  state.pointerDown(event)
+  assert.equal(state.gesture?.kind, "pan")
+})
+
+test("read-only: the undo key pushes nothing", () => {
+  const previous = globalThis.document
+  globalThis.document = {getElementById: () => null}
+  try {
+    const {state} = background()
+    state.canvas.dataset.readOnly = ""
+    let prevented = false
+    state.keyDown({key: "z", metaKey: true, ctrlKey: false, shiftKey: false, target: {tagName: "DIV"}, preventDefault() { prevented = true }})
+    assert.deepEqual(state.pushes, [])
+    assert.equal(prevented, false)
+
+    delete state.canvas.dataset.readOnly
+    state.keyDown({key: "z", metaKey: true, ctrlKey: false, shiftKey: false, target: {tagName: "DIV"}, preventDefault() {}})
+    assert.deepEqual(state.pushes, [{name: "undo", payload: {}}])
+  } finally {
+    globalThis.document = previous
+  }
+})

@@ -53,6 +53,8 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :undo?, :boolean, required: true
   attr :tools_open?, :boolean, required: true
   attr :issue_count, :integer, required: true
+  attr :runs_enabled?, :boolean, default: false
+  attr :latest_run, :string, default: nil, doc: "the id of the newest unfinished run"
 
   def composer_header(assigns) do
     assigns = assign(assigns, primary: @primary, secondary: @secondary)
@@ -75,7 +77,7 @@ defmodule DomovoyWeb.ComposerComponents do
         <.link
           :if={@stage}
           id="breadcrumb-workflow"
-          patch={~p"/composer/#{@draft.id}"}
+          patch={composer_path(@draft.id, nil, nil)}
           class="soft-link"
         >
           Workflow
@@ -90,7 +92,7 @@ defmodule DomovoyWeb.ComposerComponents do
         id="engine-target"
         class="soft-chip rounded-full px-2 py-0.5 text-xs"
       >
-        Core 0.3.2
+        Core 0.3.4
       </span>
 
       <div class="ml-auto flex items-center gap-2">
@@ -136,10 +138,27 @@ defmodule DomovoyWeb.ComposerComponents do
           :if={@validity}
           id="export"
           href={~p"/composer/#{@draft.id}/export"}
-          class={@primary}
+          class={@secondary}
         >
           Export
         </.link>
+        <.link
+          :if={@runs_enabled? && @latest_run}
+          id="latest-run-link"
+          patch={composer_path(@draft.id, @stage, @latest_run)}
+          class="soft-link text-sm"
+        >
+          Unfinished run
+        </.link>
+        <button
+          :if={@runs_enabled?}
+          id="start-run"
+          type="button"
+          phx-click="open_start"
+          class={@primary}
+        >
+          Start
+        </button>
       </div>
     </header>
     """
@@ -201,6 +220,21 @@ defmodule DomovoyWeb.ComposerComponents do
     </div>
     """
   end
+
+  @doc """
+  The composer's path: a draft at a level, and in a run when `run_id` is set.
+  """
+  @spec composer_path(
+          draft_id :: String.t(),
+          stage :: String.t() | nil,
+          run_id :: String.t() | nil
+        ) :: String.t()
+  def composer_path(draft_id, nil, nil), do: ~p"/composer/#{draft_id}"
+  def composer_path(draft_id, nil, run_id), do: ~p"/composer/#{draft_id}?#{[run: run_id]}"
+  def composer_path(draft_id, stage, nil), do: ~p"/composer/#{draft_id}/stages/#{stage}"
+
+  def composer_path(draft_id, stage, run_id),
+    do: ~p"/composer/#{draft_id}/stages/#{stage}?#{[run: run_id]}"
 
   defp adapters(%{connect: nil}), do: []
 
@@ -565,12 +599,19 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :sources, :list, default: []
   attr :edges, :list, required: true
   attr :selected, :string, default: nil
+  attr :run_statuses, :map, default: %{}
+  attr :read_only?, :boolean, default: false
 
   attr :stage, :string, required: true
 
   def stage_canvas(assigns) do
     ~H"""
-    <.canvas_frame label="Stage graph" level={canvas_level(@stage)} edges={@edges}>
+    <.canvas_frame
+      label="Stage graph"
+      level={canvas_level(@stage)}
+      edges={@edges}
+      read_only?={@read_only?}
+    >
       <:empty :if={@cards == []}>
         This stage has no nodes yet. Pick a runner on the left to add one.
       </:empty>
@@ -579,6 +620,7 @@ defmodule DomovoyWeb.ComposerComponents do
         :key={card.name}
         card={card}
         selected?={card.name == @selected}
+        run_status={@run_statuses[card.name]}
       />
       <.source_node :for={source <- @sources} :key={source.name} source={source} />
     </.canvas_frame>
@@ -593,10 +635,18 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :edges, :list, required: true
   attr :selected, :string, default: nil
   attr :draft_id, :string, required: true
+  attr :run_statuses, :map, default: %{}
+  attr :read_only?, :boolean, default: false
+  attr :run_id, :string, default: nil
 
   def workflow_canvas(assigns) do
     ~H"""
-    <.canvas_frame label="Workflow graph" level={canvas_level(nil)} edges={@edges}>
+    <.canvas_frame
+      label="Workflow graph"
+      level={canvas_level(nil)}
+      edges={@edges}
+      read_only?={@read_only?}
+    >
       <:empty :if={@cards == []}>
         This draft has no vertices yet. Add a stage on the left.
       </:empty>
@@ -606,6 +656,8 @@ defmodule DomovoyWeb.ComposerComponents do
         card={card}
         selected?={card.name == @selected}
         draft_id={@draft_id}
+        run_status={@run_statuses[card.name]}
+        run_id={@run_id}
       />
     </.canvas_frame>
     """
@@ -614,6 +666,7 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :label, :string, required: true
   attr :level, :string, required: true
   attr :edges, :list, required: true
+  attr :read_only?, :boolean, required: true
   slot :empty
   slot :inner_block, required: true
 
@@ -623,6 +676,7 @@ defmodule DomovoyWeb.ComposerComponents do
       id="stage-canvas"
       tabindex="-1"
       aria-label={@label}
+      data-read-only={@read_only?}
       class="soft-tray relative touch-none select-none overflow-hidden"
     >
       <p :if={@empty != []} id="canvas-empty" class="p-8 text-sm text-muted">
@@ -687,6 +741,8 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :card, :map, required: true
   attr :selected?, :boolean, required: true
   attr :draft_id, :string, required: true
+  attr :run_status, :string, default: nil
+  attr :run_id, :string, default: nil
 
   defp vertex_card(assigns) do
     assigns = assign(assigns, quiet: @quiet)
@@ -696,6 +752,7 @@ defmodule DomovoyWeb.ComposerComponents do
       id={@card.dom_id}
       aria-label={"#{kind_label(@card.kind)} #{@card.name}"}
       data-node={@card.name}
+      data-run-status={@run_status}
       data-x={@card.x}
       data-y={@card.y}
       style={"left:#{@card.x}px;top:#{@card.y}px"}
@@ -708,6 +765,7 @@ defmodule DomovoyWeb.ComposerComponents do
         end
       ]}
     >
+      <.run_pill :if={@run_status} id={"#{@card.dom_id}-run-status"} status={@run_status} />
       <header class="relative flex items-start gap-2 border-b border-base-300 px-3 py-2">
         <span
           data-socket={@card.in_socket}
@@ -762,7 +820,7 @@ defmodule DomovoyWeb.ComposerComponents do
         <.link
           id={"#{@card.dom_id}-open"}
           data-card-open
-          patch={~p"/composer/#{@draft_id}/stages/#{@card.name}"}
+          patch={composer_path(@draft_id, @card.name, @run_id)}
           class={@quiet}
         >
           Open
@@ -798,11 +856,45 @@ defmodule DomovoyWeb.ComposerComponents do
     """
   end
 
+  @doc """
+  A run status as a word, with a spinning icon while running. On a card it is placed
+  over the edge, so it takes no layout space and moves no socket.
+  """
+  attr :id, :string, required: true
+  attr :status, :string, required: true
+  attr :class, :string, default: "run-pill-card"
+
+  def run_pill(assigns) do
+    ~H"""
+    <span id={@id} data-run-pill={@status} class={["run-pill", @class]}>
+      <span :if={@status == "running"} aria-hidden="true" class="flex">
+        <.icon name="hero-arrow-path" class="run-spin size-3" />
+      </span>
+      {run_status_word(@status)}
+    </span>
+    """
+  end
+
+  @doc """
+  The word for a run status.
+  """
+  @spec run_status_word(status :: String.t()) :: String.t()
+  def run_status_word("running"), do: "Running"
+  def run_status_word("succeeded"), do: "Done"
+  def run_status_word("needs_you"), do: "Needs you"
+  def run_status_word("uncertain"), do: "Check this"
+  def run_status_word("failed"), do: "Failed"
+  def run_status_word("interrupted"), do: "Interrupted"
+  def run_status_word("cancelled"), do: "Cancelled"
+  def run_status_word("skipped"), do: "Skipped"
+  def run_status_word(_unknown), do: "Unknown"
+
   defp kind_label("stage"), do: "Stage"
   defp kind_label("decision"), do: "Decision"
 
   attr :card, :map, required: true
   attr :selected?, :boolean, required: true
+  attr :run_status, :string, default: nil
 
   defp runner_card(assigns) do
     assigns = assign(assigns, quiet: @quiet)
@@ -812,6 +904,7 @@ defmodule DomovoyWeb.ComposerComponents do
       id={@card.dom_id}
       aria-label={"Node #{@card.name}"}
       data-node={@card.name}
+      data-run-status={@run_status}
       data-x={@card.x}
       data-y={@card.y}
       style={"left:#{@card.x}px;top:#{@card.y}px"}
@@ -824,6 +917,7 @@ defmodule DomovoyWeb.ComposerComponents do
         end
       ]}
     >
+      <.run_pill :if={@run_status} id={"#{@card.dom_id}-run-status"} status={@run_status} />
       <header class="relative flex items-start gap-2 border-b border-base-300 px-3 py-2">
         <span
           data-socket={@card.after_in_socket}
@@ -1486,7 +1580,13 @@ defmodule DomovoyWeb.ComposerComponents do
         secondary: @secondary,
         section_title: @section_title,
         form:
-          to_form(%{"name" => card.name, "prompt" => card.prompt, "decider" => card.decider},
+          to_form(
+            %{
+              "name" => card.name,
+              "prompt" => card.prompt,
+              "decider" => card.decider,
+              "node" => card.decider_node
+            },
             as: :decision,
             id: "decision"
           )
@@ -1501,6 +1601,13 @@ defmodule DomovoyWeb.ComposerComponents do
         type="select"
         label="Decider"
         options={Enum.map(@deciders, &{&1.label, &1.id})}
+      />
+      <.input
+        field={@form[:node]}
+        type="select"
+        label="Node the decider reads"
+        prompt="None"
+        options={@card.node_names}
       />
       <button id="save-decision" type="submit" class={@secondary}>Save</button>
     </.form>
