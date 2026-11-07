@@ -221,6 +221,22 @@ defmodule Domovoy.ComposerTest do
       assert {:ok, _deleted} = Composer.delete_draft(draft)
       assert Composer.delete_draft(draft) == {:error, :gone}
     end
+
+    test "with runs off, a draft holding any run's row is refused and stays" do
+      draft = draft!()
+
+      Repo.insert!(%Composer.Run{
+        id: Ecto.UUID.generate(),
+        draft_id: draft.id,
+        workflow_name: "main",
+        document: %{},
+        fingerprint: "unstarted",
+        start_command_id: "start"
+      })
+
+      assert Composer.delete_draft(draft) == {:error, :runs_unfinished}
+      assert {:ok, _still} = Composer.get_draft(draft.id)
+    end
   end
 
   describe "delegates" do

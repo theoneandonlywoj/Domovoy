@@ -9,7 +9,12 @@ import Config
 
 config :domovoy,
   ecto_repos: [Domovoy.Repo],
-  generators: [timestamp_type: :utc_datetime, binary_id: true]
+  generators: [timestamp_type: :utc_datetime, binary_id: true],
+  composer_runs_enabled: false,
+  composer_run_adapters: [
+    journal: {DomovoyCore.Journal.Canonical.Postgres, repo: Domovoy.Repo, namespace: "composer"},
+    store: {DomovoyCore.Store.Postgres, repo: Domovoy.Repo}
+  ]
 
 # Configure the endpoint
 config :domovoy, DomovoyWeb.Endpoint,

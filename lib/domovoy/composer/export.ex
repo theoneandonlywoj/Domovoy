@@ -40,6 +40,12 @@ defmodule Domovoy.Composer.Export do
   end
 
   @doc """
+  The steps this host is configured with: none in production, so the real ones apply.
+  """
+  @spec configured_steps() :: steps()
+  def configured_steps, do: Application.get_env(:domovoy, :composer_export_steps, default_steps())
+
+  @doc """
   Validates a document. `steps` overrides build, to_json or from_json, for tests.
   """
   @spec validate(document :: term(), steps :: steps()) :: result()

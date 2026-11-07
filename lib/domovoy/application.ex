@@ -9,16 +9,18 @@ defmodule Domovoy.Application do
   def start(_type, _args) do
     Domovoy.Catalog.load()
 
-    children = [
-      DomovoyWeb.Telemetry,
-      Domovoy.Repo,
-      {DNSCluster, query: Application.get_env(:domovoy, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: Domovoy.PubSub},
-      # Start a worker by calling: Domovoy.Worker.start_link(arg)
-      # {Domovoy.Worker, arg},
-      # Start to serve requests, typically the last entry
-      DomovoyWeb.Endpoint
-    ]
+    # The Runtime stops before its repo, so its checkpoint can commit.
+    children =
+      [DomovoyWeb.Telemetry, Domovoy.Repo] ++
+        Domovoy.Composer.Runs.children() ++
+        [
+          {DNSCluster, query: Application.get_env(:domovoy, :dns_cluster_query) || :ignore},
+          {Phoenix.PubSub, name: Domovoy.PubSub},
+          # Start a worker by calling: Domovoy.Worker.start_link(arg)
+          # {Domovoy.Worker, arg},
+          # Start to serve requests, typically the last entry
+          DomovoyWeb.Endpoint
+        ]
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options

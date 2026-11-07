@@ -75,6 +75,14 @@ defmodule Domovoy.Composer.LiteralPolicy do
   def parse(type, raw) when is_binary(raw), do: parse_as(editor(type), raw)
   def parse(_type, _raw), do: :error
 
+  @doc """
+  Parses raw text as an editor reads it, for a type whose editor came from elsewhere.
+  An error never holds the value.
+  """
+  @spec parse_editor(editor :: editor(), raw :: term()) :: {:ok, term()} | :error
+  def parse_editor(editor, raw) when is_binary(raw), do: parse_as(editor, raw)
+  def parse_editor(_editor, _raw), do: :error
+
   @spec parse_as(editor :: editor(), raw :: String.t()) :: {:ok, term()} | :error
   defp parse_as(:text, raw), do: {:ok, raw}
   defp parse_as(:integer, raw), do: integer(raw)

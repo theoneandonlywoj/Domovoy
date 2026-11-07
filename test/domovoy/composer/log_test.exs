@@ -6,6 +6,7 @@ defmodule Domovoy.Composer.LogTest do
 
   alias Domovoy.Composer
   alias Domovoy.Composer.Draft
+  alias Domovoy.Composer.Run
   alias Domovoy.ComposerFixtures
   alias Domovoy.Repo
 
@@ -56,6 +57,31 @@ defmodule Domovoy.Composer.LogTest do
       end)
 
     assert log =~ "positive-control"
+    refute log =~ @table
+    refute log =~ @sentinel
+  end
+
+  test "a refused delete and the run table's queries log nothing either" do
+    {:ok, draft} = Composer.create_draft(%{title: "title"})
+
+    %Run{
+      id: Ecto.UUID.generate(),
+      draft_id: draft.id,
+      workflow_name: "scenario_a",
+      document: with_sentinel(),
+      fingerprint: "unstarted",
+      start_command_id: "start"
+    }
+    |> Repo.insert!(log: false)
+
+    log =
+      capture_log(fn ->
+        {:error, :runs_unfinished} = Composer.delete_draft(draft)
+        Logger.debug("positive-control")
+      end)
+
+    assert log =~ "positive-control"
+    refute log =~ "composer_runs"
     refute log =~ @table
     refute log =~ @sentinel
   end

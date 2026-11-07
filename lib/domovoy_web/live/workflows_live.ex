@@ -28,7 +28,7 @@ defmodule DomovoyWeb.WorkflowsLive do
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold tracking-tight">Workflow drafts</h1>
           <p class="text-sm text-muted">
-            Compose definitions for Core 0.3.2. Nothing here starts a run.
+            Compose definitions for Core 0.3.4.
           </p>
         </header>
 
@@ -104,7 +104,12 @@ defmodule DomovoyWeb.WorkflowsLive do
          {:ok, deleted} <- Composer.delete_draft(draft) do
       {:noreply, stream_delete(socket, :drafts, deleted)}
     else
-      _gone -> {:noreply, stream(socket, :drafts, Composer.list_drafts(), reset: true)}
+      {:error, :runs_unfinished} ->
+        {:noreply,
+         put_flash(socket, :error, "That draft has a run that isn't finished. Cancel it first.")}
+
+      _gone ->
+        {:noreply, stream(socket, :drafts, Composer.list_drafts(), reset: true)}
     end
   end
 

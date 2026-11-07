@@ -184,8 +184,13 @@ defmodule Domovoy.CatalogTest do
 
       curated = Enum.map(Curated.validators(), & &1.module)
 
-      assert Enum.sort(installed -- [DomovoyClaudeCodePlugin.Reflect.Validator.WindowIsValid]) ==
-               Enum.sort(curated)
+      # The raising validator is a test fixture that only hand-built Core workflows name.
+      uncurated = [
+        DomovoyClaudeCodePlugin.Reflect.Validator.WindowIsValid,
+        Domovoy.RaisingValidator
+      ]
+
+      assert Enum.sort(installed -- uncurated) == Enum.sort(curated)
     end
 
     test "name real fields in requires" do

@@ -17,6 +17,8 @@ defmodule Domovoy.Composer do
   alias Domovoy.Composer.LiteralPolicy
   alias Domovoy.Composer.Operations
   alias Domovoy.Composer.Projection
+  alias Domovoy.Composer.Run
+  alias Domovoy.Composer.Runs
   alias Domovoy.Repo
 
   @suffix_bytes 3
@@ -43,16 +45,30 @@ defmodule Domovoy.Composer do
   defdelegate issue_rows(document, issues, stage), to: Projection
   defdelegate literal_editor(type), to: LiteralPolicy, as: :editor
   defdelegate nodes(document, stage), to: Document
+  defdelegate runs_enabled?(), to: Runs, as: :enabled?
+  defdelegate start_run(attrs), to: Runs, as: :start
+  defdelegate get_run(draft_id, run_id), to: Runs, as: :get
+  defdelegate open_run(row), to: Runs, as: :open
+  defdelegate run_view(handle), to: Runs, as: :view
+  defdelegate recent_runs(draft_id, limit \\ 10), to: Runs, as: :recent
+  defdelegate latest_unfinished_run(draft_id), to: Runs, as: :latest_unfinished
+  defdelegate run_draft_changed?(row, draft), to: Runs, as: :draft_changed?
+  defdelegate subscribe_run(handle, after_cursor), to: Runs, as: :subscribe
+  defdelegate ack_run_event(subscription, cursor), to: Runs, as: :ack
+  defdelegate unsubscribe_run(subscription), to: Runs, as: :unsubscribe
+  defdelegate resync_run(handle), to: Runs, as: :resync
+  defdelegate encode_run_event(envelope), to: Runs, as: :encode_event
+  defdelegate cancel_run(handle), to: Runs, as: :cancel
+  defdelegate activate_run(handle), to: Runs, as: :activate
+  defdelegate decide_run(handle, occurrence, choice, inputs), to: Runs, as: :decide
+  defdelegate run_record(handle, node, generation, seq), to: Runs, as: :record
 
   @doc """
   Decides Definition valid, through `Domovoy.Composer.Export.validate/2`.
   """
   @spec validate(document :: Document.t()) :: Export.result()
   def validate(document) do
-    Export.validate(
-      document,
-      Application.get_env(:domovoy, :composer_export_steps, Export.default_steps())
-    )
+    Export.validate(document, Export.configured_steps())
   end
 
   @doc """
@@ -123,14 +139,47 @@ defmodule Domovoy.Composer do
   def save_title(%Draft{} = draft, title), do: save(draft, %{title: title})
 
   @doc """
-  Deletes a draft.
+  Deletes a draft, leaving its runs' rows with a nil draft id. A draft with an
+  unfinished run gives `:runs_unfinished`, because such a run could then no longer be
+  reached.
+
+  Core is asked outside any transaction, because it shares this repo and its journal
+  reads inside one would lose their isolation. So the draft's run rows are read before
+  that check and again under the draft's lock; a row that came or went in between
+  gives `:runs_unfinished` too. A row inserted after the lock waits on its foreign key
+  and then finds the draft gone.
   """
-  @spec delete_draft(draft :: Draft.t()) :: {:ok, Draft.t()} | {:error, :gone}
+  @spec delete_draft(draft :: Draft.t()) ::
+          {:ok, Draft.t()} | {:error, :gone | :runs_unfinished}
   def delete_draft(%Draft{} = draft) do
-    case Repo.delete(draft, log: false, stale_error_field: :id) do
-      {:ok, deleted} -> {:ok, deleted}
-      {:error, _changeset} -> {:error, :gone}
+    checked = run_ids(draft.id)
+
+    if Runs.unfinished?(draft.id),
+      do: {:error, :runs_unfinished},
+      else: Repo.transaction(fn -> delete_locked(draft, checked) end, log: false)
+  end
+
+  # Inside the transaction: the draft's row is locked, so its run rows can't change
+  # until it commits.
+  @spec delete_locked(draft :: Draft.t(), checked :: MapSet.t(String.t())) :: Draft.t()
+  defp delete_locked(draft, checked) do
+    locked = from(row in Draft, where: row.id == ^draft.id, lock: "FOR UPDATE", select: row.id)
+
+    with id when is_binary(id) <- Repo.one(locked, log: false),
+         true <- run_ids(id) == checked,
+         {:ok, deleted} <- Repo.delete(draft, log: false, stale_error_field: :id) do
+      deleted
+    else
+      false -> Repo.rollback(:runs_unfinished)
+      _gone -> Repo.rollback(:gone)
     end
+  end
+
+  @spec run_ids(draft_id :: String.t()) :: MapSet.t(String.t())
+  defp run_ids(draft_id) do
+    from(row in Run, where: row.draft_id == ^draft_id, select: row.id)
+    |> Repo.all(log: false)
+    |> MapSet.new()
   end
 
   @spec save(draft :: Draft.t(), attrs :: map()) ::

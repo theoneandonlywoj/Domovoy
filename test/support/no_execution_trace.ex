@@ -1,7 +1,8 @@
 defmodule Domovoy.NoExecutionTrace do
   @moduledoc """
-  Proves a flow calls no runner, validator, decider or file-reading type, for
-  `async: false` tests. It traces every such function, including local calls, so a
+  Proves an authoring flow calls no runner, validator, decider or file-reading type,
+  for `async: false` tests. A real run does call them, which is how a test shows the
+  trace isn't silent. It traces every such function, including local calls, so a
   call made from any process is seen, then proves the trace works with a control.
   """
 
@@ -19,7 +20,7 @@ defmodule Domovoy.NoExecutionTrace do
     Type => {:cast, 2}
   }
 
-  # The only casts the composer makes: they parse text and touch nothing else.
+  # The only casts authoring makes: they parse text and touch nothing else.
   @allowed [
     {Type.UUID, :cast, 2},
     {Type.URI, :cast, 2},
@@ -74,6 +75,27 @@ defmodule Domovoy.NoExecutionTrace do
     after
       :erlang.trace(:all, false, [:call])
       Enum.each(targets, &:erlang.trace_pattern(&1, false, [:local]))
+      unlink_and_stop(tracer)
+    end
+  end
+
+  @doc """
+  The calling process's calls to every function of `modules` during `fun`, for a check
+  narrower than `run/1`. A test should show it can see a call, as `run/1`'s controls do.
+  """
+  @spec calls_to(modules :: [module()], fun :: (-> term())) :: [{pid(), call()}]
+  def calls_to(modules, fun) do
+    tracer = spawn_link(&collect_loop/0)
+    patterns = Enum.map(modules, &{&1, :_, :_})
+
+    try do
+      Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
+      :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+      fun.()
+      :erlang.trace(self(), false, [:call])
+      drain(tracer)
+    after
+      Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
       unlink_and_stop(tracer)
     end
   end

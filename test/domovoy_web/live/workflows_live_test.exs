@@ -56,6 +56,27 @@ defmodule DomovoyWeb.WorkflowsLiveTest do
     refute has_element?(view, "#drafts-#{other.id}")
   end
 
+  test "a draft with an unfinished run stays, with a flash that says why", %{conn: conn} do
+    draft = draft!(scenario_a())
+
+    # With runs off, any run row counts as unfinished, so no Core run is needed.
+    Domovoy.Repo.insert!(%Domovoy.Composer.Run{
+      id: Ecto.UUID.generate(),
+      draft_id: draft.id,
+      workflow_name: draft.document["name"],
+      document: draft.document,
+      fingerprint: "unstarted",
+      start_command_id: "start"
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/composer")
+    view |> element("#delete-#{draft.id}") |> render_click()
+
+    assert has_element?(view, "#drafts-#{draft.id}")
+    assert has_element?(view, "#flash-error", "has a run that isn't finished")
+    assert {:ok, _draft} = Composer.get_draft(draft.id)
+  end
+
   test "plugin status separates installed from verified", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/composer")
 
