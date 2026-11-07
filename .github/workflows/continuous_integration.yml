@@ -1,0 +1,201 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+      - name: Check for unused dependencies
+        run: mix deps.unlock --check-unused
+
+  compile-dev:
+    needs: dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+      - run: MIX_ENV=dev mix compile --warnings-as-errors
+      - run: mix assets.setup
+      - run: mix assets.build
+
+  js-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .tool-versions
+      - run: make test-js
+
+  check-outdated-deps:
+    needs: dependencies
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+      - name: Check for outdated dependencies
+        id: hex-outdated
+        continue-on-error: true
+        run: |
+          mix hex.outdated > hex-outdated.txt 2>&1 || true
+          if [ -s hex-outdated.txt ]; then
+            echo "has_output=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_output=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Prepare comment body
+        if: github.event_name == 'pull_request'
+        id: prepare-comment
+        run: |
+          if [ -s hex-outdated.txt ]; then
+            {
+              echo "## Outdated Dependencies Check"
+              echo ""
+              echo '```'
+              cat hex-outdated.txt
+              echo '```'
+            } > comment-body.txt
+          else
+            {
+              echo "## Outdated Dependencies Check"
+              echo ""
+              echo "All dependencies are up to date! ✅"
+            } > comment-body.txt
+          fi
+      - name: Create or update PR comment
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: hex-outdated-check
+          path: comment-body.txt
+
+  compile-test:
+    needs: dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+          mix-env: test
+      - run: MIX_ENV=test mix compile --warnings-as-errors
+
+  static-code-analysis:
+    needs: [compile-dev, compile-test]
+    runs-on: ubuntu-24.04
+    env:
+      DIALYZER_PLT_CORE_PATH: priv/plts/core
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        id: setup
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+      # On a mix.lock change, restore the newest PLT for the same OTP/Elixir
+      # and let Dialyzer update it incrementally instead of rebuilding it.
+      - name: Restore cached PLT
+        id: plt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: priv/plts
+          key: plt-${{ runner.os }}-${{ steps.setup.outputs.otp-version }}-${{ steps.setup.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            plt-${{ runner.os }}-${{ steps.setup.outputs.otp-version }}-${{ steps.setup.outputs.elixir-version }}-
+      - name: Build Dialyzer PLT
+        if: steps.plt-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$DIALYZER_PLT_CORE_PATH"
+          mix dialyzer --plt
+      # Saved right after the build so it is kept even if a later check fails.
+      - name: Save PLT
+        if: steps.plt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: priv/plts
+          key: ${{ steps.plt-cache.outputs.cache-primary-key }}
+      - run: mix quality
+
+  mix-test:
+    needs: static-code-analysis
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: domovoy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+          mix-env: test
+      - run: mix test
+
+  test-seed:
+    needs: static-code-analysis
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: domovoy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Elixir environment
+        uses: ./.github/actions/setup-beam
+        with:
+          domovoy-deps-token: ${{ secrets.DOMOVOY_DEPS_TOKEN }}
+          mix-env: test
+      - name: Setup database
+        run: |
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+      - name: Run seed file
+        run: make db-seed-test
