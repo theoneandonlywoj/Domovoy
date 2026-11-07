@@ -358,3 +358,38 @@ can't reach the text by design. Re-seeding after deleting real drafts wasn't wal
 person's draft may be touched; `Seeds.run` on an empty table is covered by the LiveView tests,
 which don't establish it in a browser. A red icon wasn't walked here either, since the seeds
 hold none; the LiveView tests cover it.
+
+## Start, watch and cancel a run — phase 2, 2026-11-07
+
+Fresh observations on port 4010 with headless Chrome at 1600x1000 through CDP, with a
+temporary driver outside the repo: trusted pointer input, and `Input.insertText` for the
+start fields. `Walkthrough Cracow house price review`
+(`cd2ad769-007e-4162-9402-6cc2b44b67f1`) was a disposable copy of the
+`Definitions.all()` document made with `Composer.create_draft/2`; no existing draft was
+touched. `domovoy_dev` (port 54323) now holds `composer_runs` and Core's tables, with all
+three migrations up. Wire alignment was measured, for every edge of the view, as the
+distance from each end of its drawn path (`getPointAtLength` through `getScreenCTM`) to
+the centre of its socket. No page exception, console error, or error or warning log line
+was observed, and no start value (`Krowodrza`, `58.5`) appeared in the server log.
+
+| Check | Fresh result |
+|---|---|
+| Start form and effect confirmation | Pass: `#start-run` opened `#start-form` with all 7 inputs; rooms `3`, bathrooms `1`, area `58.5`, district `Krowodrza` typed, the rest left to their defaults. Submit showed `#start-effects` listing Examples AreaModel, Estimate, LayoutModel, LocationModel and Normalize |
+| Start | Pass: Confirm patched to `?run=b486d71c-6e90-491c-a14c-6b4ac064653c`; `#stage-canvas` carries `data-read-only`; `#run-status` "Waiting for your decision on review", phase `waiting`, outcome "not yet", `#run-pending` "review is waiting for a decision." |
+| Live status on cards | Pass: `estimate_price` `data-run-status="succeeded"`, `review` `needs_you`. `data-x`/`data-y` (60, 80) and (440, 80) and each card box (280 x 93.297, 280 x 144.297) were the same as in the draft before the start |
+| Wires after a status change | Pass: 2 of 2 wires on the workflow, 0 px from their sockets; the route into `review` drew `wire-run-succeeded`, the untaken `revise` rerun route no run class. On `estimate_price`, 14 of 14 wires at 0 px, 7 `wire-run-succeeded` and 7 with no run class, matching the 7 input source nodes, which carry no status; all 5 runner nodes `succeeded` |
+| Stage round trip | Pass: the card's open link reached `/stages/estimate_price?run=...`, and `#breadcrumb-workflow` came back to `?run=...` with the same statuses |
+| Drag in a run | Pass: a trusted press and 80 x 50 px move on `estimate_price` changed no `data-x`/`data-y` |
+| Reload | Pass: same URL, level, phase, statuses and wire classes, wires at 0 px |
+| Cancel | Pass: `#cancel-run` opened `#cancel-run-dialog`; `#confirm-cancel-run` gave "Cancelled", phase `finished`, outcome `cancelled`, no pending decision and no `#cancel-run`; wires at 0 px |
+| Decision after cancel | Fixed during this walk: `review` first kept `needs_you`, because the fold ignored Core's `decision_superseded`. After the fix and a reload it reads `cancelled` |
+| A start whose task dies | From the attempt earlier today, when the tables were missing: the form stayed with its ids, the rejection read "Starting the run didn't finish. Try again.", and no value reached the error log |
+
+The copy was deleted through the draft list with its confirmation, and its row stayed gone
+after a reload; its run's row keeps a nil `draft_id`. No `Walkthrough` draft is left.
+
+Limits: Cracow's runners finish too fast to see a card in `running`; that transition is
+covered by `composer_run_view_live_test.exs` with the hold runner. "No duplicate
+attempts after reload" isn't visible in this phase's UI, which shows no attempt list, and
+rests on the same test file. A physical mouse, keyboard focus order and a socket
+reconnect without a reload weren't walked.
