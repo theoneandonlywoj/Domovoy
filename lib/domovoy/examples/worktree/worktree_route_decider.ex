@@ -1,6 +1,7 @@
 defmodule Domovoy.Examples.Worktree.WorktreeRouteDecider do
   @moduledoc """
   Picks `create` for a missing worktree and `existing` for one on the wanted branch.
+  It reads the worktree from the node that the `:node` option names.
   Ported from Core's `ensure_worktree` notebook.
   """
 
@@ -10,9 +11,10 @@ defmodule Domovoy.Examples.Worktree.WorktreeRouteDecider do
   alias DomovoyCore.Value
 
   @impl DomovoyCore.Decider
-  def decide(_decision, %Context{} = context, _opts) do
-    with {:ok, %Value{value: wanted}} <- Context.read(context, "branch_name"),
-         {:ok, %Value{value: %{} = worktree}} <- Context.read(context, "resolve") do
+  def decide(_decision, %Context{} = context, opts) do
+    with {:ok, node} when is_binary(node) <- Keyword.fetch(opts, :node),
+         {:ok, %Value{value: wanted}} <- Context.read(context, "branch_name"),
+         {:ok, %Value{value: %{} = worktree}} <- Context.read(context, node) do
       route(worktree, wanted)
     else
       _other -> {:error, :resolve_missing}

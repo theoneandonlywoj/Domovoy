@@ -27,7 +27,7 @@ defmodule Domovoy.Composer.Operations do
   # Wide enough for a wire's curve beside both cards, and tall enough for a typical node.
   @grid_step {460, 420}
   @input_keys ["default", "required", "type"]
-  @decision_keys ["decider", "prompt"]
+  @decision_keys ["decider", "decider_options", "prompt"]
   @choice_keys ["description", "inputs", "name", "target"]
 
   @type op :: tuple()
@@ -312,7 +312,17 @@ defmodule Domovoy.Composer.Operations do
   defp apply_op(document, {:put_decision, name, attrs}) when is_binary(name) and is_map(attrs) do
     with {:ok, decision} <- fetch_decision(document, name),
          :ok <- check_decision_attrs(attrs) do
-      {:ok, put_in(document, ["vertices", name], Map.merge(decision, attrs)), :definition}
+      # Empty options are dropped, so clearing the node leaves no trace.
+      decision =
+        case Map.merge(decision, attrs) do
+          %{"decider_options" => options} = merged when options == %{} ->
+            Map.delete(merged, "decider_options")
+
+          merged ->
+            merged
+        end
+
+      {:ok, put_in(document, ["vertices", name], decision), :definition}
     end
   end
 
@@ -710,6 +720,9 @@ defmodule Domovoy.Composer.Operations do
         {:error, invalid_params()}
 
       not (is_binary(Map.get(attrs, "prompt", "")) and is_binary(Map.get(attrs, "decider", ""))) ->
+        {:error, invalid_params()}
+
+      not Document.decider_options?(Map.get(attrs, "decider_options", %{})) ->
         {:error, invalid_params()}
 
       is_map_key(attrs, "decider") and not decider?(attrs["decider"]) ->

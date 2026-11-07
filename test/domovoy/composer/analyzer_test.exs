@@ -1,7 +1,7 @@
 defmodule Domovoy.Composer.AnalyzerTest do
   use ExUnit.Case, async: true
 
-  import Domovoy.ComposerFixtures, only: [edit_all: 2, scenario_a: 0]
+  import Domovoy.ComposerFixtures, only: [edit_all: 2, route_run: 0, scenario_a: 0]
 
   alias Domovoy.Composer.Analyzer
   alias Domovoy.Composer.Compatibility
@@ -881,6 +881,23 @@ defmodule Domovoy.Composer.AnalyzerTest do
         |> put_in(["vertices", "ask", "decider"], "Elixir.System")
 
       reported(decision, :unknown_decider, {:vertex, "ask"})
+    end
+
+    test "a decider that reads a node needs a node option naming an existing node" do
+      document = route_run()
+      assert Analyzer.issues(document) == []
+
+      reported(
+        update_in(document, ["vertices", "route"], &Map.delete(&1, "decider_options")),
+        :missing_decider_node,
+        {:vertex, "route"}
+      )
+
+      reported(
+        put_in(document, ["vertices", "route", "decider_options", "node"], "ghost"),
+        :unknown_decider_node,
+        {:vertex, "route"}
+      )
     end
 
     test "a producer with an unknown runner adds no second issue to its reader" do

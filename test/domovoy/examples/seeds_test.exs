@@ -9,7 +9,7 @@ defmodule Domovoy.Examples.SeedsTest do
   alias Domovoy.Composer.Issue
   alias Domovoy.Examples.Seeds
 
-  @engine_names ["cracow_prices", "create_worktree"]
+  @engine_names ["cracow_prices", "cracow_review", "create_worktree"]
 
   # `make db-seed-test` commits the seeds to this database, outside the sandbox. These
   # tests count on starting without them; the delete rolls back with the test.
@@ -29,11 +29,16 @@ defmodule Domovoy.Examples.SeedsTest do
 
   defp engine_names, do: drafts() |> Enum.map(& &1.document["name"]) |> Enum.sort()
 
-  test "two runs leave exactly the two titled drafts" do
+  test "two runs leave exactly the three titled drafts" do
     assert run_seeds() =~ "create_worktree: created"
     first = drafts()
 
-    assert Enum.sort(Enum.map(first, & &1.title)) == ["Cracow house price", "Create a worktree"]
+    assert Enum.sort(Enum.map(first, & &1.title)) == [
+             "Cracow house price",
+             "Cracow house price review",
+             "Create a worktree"
+           ]
+
     assert engine_names() == @engine_names
 
     assert run_seeds() =~ "create_worktree: kept"
@@ -51,15 +56,24 @@ defmodule Domovoy.Examples.SeedsTest do
     run_seeds()
 
     assert draft("create_worktree") == renamed
-    assert length(drafts()) == 2
+    assert length(drafts()) == 3
   end
 
-  test "a run interrupted between the two drafts converges, leaving the first alone" do
-    assert [{"create_worktree", :created}, {"cracow_prices", :created}] = Seeds.run()
+  test "a run interrupted between the drafts converges, leaving the first alone" do
+    assert [
+             {"create_worktree", :created},
+             {"cracow_prices", :created},
+             {"cracow_review", :created}
+           ] = Seeds.run()
+
     {:ok, _deleted} = Composer.delete_draft(draft("cracow_prices"))
     kept = draft("create_worktree")
 
-    assert [{"create_worktree", :kept}, {"cracow_prices", :created}] = Seeds.run()
+    assert [
+             {"create_worktree", :kept},
+             {"cracow_prices", :created},
+             {"cracow_review", :kept}
+           ] = Seeds.run()
 
     assert engine_names() == @engine_names
     assert draft("create_worktree") == kept
@@ -70,7 +84,7 @@ defmodule Domovoy.Examples.SeedsTest do
 
     run_seeds()
 
-    assert length(drafts()) == 3
+    assert length(drafts()) == 4
     assert {:ok, ^user_draft} = Composer.get_draft(user_draft.id)
   end
 

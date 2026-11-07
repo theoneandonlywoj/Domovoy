@@ -66,12 +66,12 @@ defmodule Domovoy.Examples.DefinitionsTest do
 
   # The vertices as each notebook's cells build them, with its node validators.
   defp worktree_vertices do
-    worktree_name = {"worktree_name", Type.String}
+    worktree_name = {"derive_worktree_name", Type.String}
     repository = {"repository_path", Type.Directory}
 
     worktree_name_node =
       Node.new(%{
-        name: "worktree_name",
+        name: "derive_worktree_name",
         runner: WorktreeName,
         type: Type.String,
         bind: %{target_branch: {"branch_name", Type.String}}
@@ -81,7 +81,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
 
     resolve_node =
       Node.new(%{
-        name: "resolve",
+        name: "look_up_worktree",
         runner: WorktreeResolve,
         type: WorktreeType,
         bind: resolve_bind
@@ -101,14 +101,19 @@ defmodule Domovoy.Examples.DefinitionsTest do
       })
 
     result_node =
-      Node.new(%{name: "result", runner: WorktreeResolve, type: WorktreeType, bind: resolve_bind})
+      Node.new(%{
+        name: "describe_synced_worktree",
+        runner: WorktreeResolve,
+        type: WorktreeType,
+        bind: resolve_bind
+      })
 
     sync_build_node =
       Node.new(%{
         name: "sync_build",
         runner: Worktree.WorktreeSyncFolder,
         type: Type.Map,
-        bind: %{worktree: {"resolve", WorktreeType}},
+        bind: %{worktree: {"look_up_worktree", WorktreeType}},
         args: %{folder: {"_build", Type.String}}
       })
 
@@ -117,57 +122,72 @@ defmodule Domovoy.Examples.DefinitionsTest do
         name: "sync_deps",
         runner: Worktree.WorktreeSyncFolder,
         type: Type.Map,
-        bind: %{worktree: {"resolve", WorktreeType}},
+        bind: %{worktree: {"look_up_worktree", WorktreeType}},
         args: %{folder: {"deps", Type.String}}
       })
 
-    mise_node = Node.new(%{name: "mise", runner: Detect, type: Executable})
+    mise_node = Node.new(%{name: "detect_mise", runner: Detect, type: Executable})
 
     trust_node =
       Node.new(%{
-        name: "trust",
+        name: "trust_mise_config",
         runner: Trust,
         type: Type.Map,
-        bind: %{worktree: {"result", Type.Any}, mise: {"mise", Executable}}
+        bind: %{
+          worktree: {"describe_synced_worktree", Type.Any},
+          mise: {"detect_mise", Executable}
+        }
       })
 
     mise_current_node =
       Node.new(%{
-        name: "mise_current",
+        name: "read_mise_versions",
         runner: Worktree.MiseCurrent,
         type: Worktree.MiseCurrentVersions,
-        bind: %{worktree: {"trust", Type.Any}, mise: {"mise", Executable}}
+        bind: %{worktree: {"trust_mise_config", Type.Any}, mise: {"detect_mise", Executable}}
       })
 
     %{
-      "inspect" =>
+      "inspect_worktree" =>
         Stage.new(%{
-          name: "inspect",
+          name: "inspect_worktree",
           graph: Graph.new([worktree_name_node, resolve_node]),
-          next: "route"
+          next: "choose_create_or_use_worktree"
         }),
-      "route" =>
+      "choose_create_or_use_worktree" =>
         Decision.new(%{
-          name: "route",
+          name: "choose_create_or_use_worktree",
           prompt: "Create or use existing?",
           choices: [
-            Choice.new(%{name: "create", description: "Create it.", target: {:run, "create"}}),
-            Choice.new(%{name: "existing", description: "Use existing.", target: {:run, "sync"}})
+            Choice.new(%{
+              name: "create",
+              description: "Create it.",
+              target: {:run, "create_missing_worktree"}
+            }),
+            Choice.new(%{
+              name: "existing",
+              description: "Use existing.",
+              target: {:run, "sync_worktree_folders"}
+            })
           ],
-          # The notebook writes `{module, []}`: the same decider, with the same no options.
-          decider: Worktree.WorktreeRouteDecider
+          # The decider reads the worktree from the node its options name.
+          decider: {Worktree.WorktreeRouteDecider, node: "look_up_worktree"}
         }),
-      "create" =>
-        Stage.new(%{name: "create", graph: Graph.new([create_worktree_node]), next: "sync"}),
-      "sync" =>
+      "create_missing_worktree" =>
         Stage.new(%{
-          name: "sync",
+          name: "create_missing_worktree",
+          graph: Graph.new([create_worktree_node]),
+          next: "sync_worktree_folders"
+        }),
+      "sync_worktree_folders" =>
+        Stage.new(%{
+          name: "sync_worktree_folders",
           graph: Graph.new([sync_build_node, sync_deps_node]),
-          next: "finalize"
+          next: "finish_worktree_setup"
         }),
-      "finalize" =>
+      "finish_worktree_setup" =>
         Stage.new(%{
-          name: "finalize",
+          name: "finish_worktree_setup",
           graph: Graph.new([result_node, mise_node, trust_node, mise_current_node])
         })
     }
@@ -230,7 +250,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
       workflow = valid_workflow(strip_descriptions(Definitions.create_worktree()))
 
       assert workflow.name == "create_worktree"
-      assert workflow.start == "inspect"
+      assert workflow.start == "inspect_worktree"
       assert workflow.vertices == worktree_vertices()
 
       assert workflow.inputs == %{
@@ -274,24 +294,29 @@ defmodule Domovoy.Examples.DefinitionsTest do
   end
 
   describe "the seeded descriptions" do
-    test "cover all 14 nodes, 6 vertices and 10 inputs, in distinct 1 to 3 sentences" do
+    test "cover all 19 nodes, 8 vertices and 17 inputs, in 1 to 3 sentences, distinct per seed" do
       items = Enum.map(Definitions.all(), &described_items(&1.document))
       count = fn kind -> items |> Enum.map(&length(&1[kind])) |> Enum.sum() end
 
-      assert {count.(:nodes), count.(:vertices), count.(:inputs)} == {14, 6, 10}
+      assert {count.(:nodes), count.(:vertices), count.(:inputs)} == {19, 8, 17}
 
-      texts =
-        for item_kinds <- items, {_kind, kind_items} <- item_kinds, item <- kind_items do
-          assert {:ok, text} = Document.description(item)
-          text
+      texts_per_seed =
+        for item_kinds <- items do
+          for {_kind, kind_items} <- item_kinds, item <- kind_items do
+            assert {:ok, text} = Document.description(item)
+            text
+          end
         end
 
-      assert length(texts) == 30
-      assert Enum.uniq(texts) == texts
+      assert texts_per_seed |> List.flatten() |> length() == 44
 
-      for text <- texts do
-        assert String.ends_with?(text, "."), text
-        assert length(String.split(text, ~r/\.(\s|$)/, trim: true)) in 1..3, text
+      for texts <- texts_per_seed do
+        assert Enum.uniq(texts) == texts
+
+        for text <- texts do
+          assert String.ends_with?(text, "."), text
+          assert length(String.split(text, ~r/\.(\s|$)/, trim: true)) in 1..3, text
+        end
       end
     end
 
@@ -333,7 +358,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
     Enum.flat_map(document["vertices"], fn
       {_name, %{"kind" => "stage", "next" => nil}} -> []
       {name, %{"kind" => "stage", "next" => next}} -> [{name, next}]
-      {name, %{"choices" => choices}} -> for %{"target" => [_, to]} <- choices, do: {name, to}
+      {name, %{"choices" => choices}} -> for %{"target" => ["run", to]} <- choices, do: {name, to}
     end)
   end
 

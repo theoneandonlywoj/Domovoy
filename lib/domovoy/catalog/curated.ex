@@ -136,4 +136,10 @@ defmodule Domovoy.Catalog.Curated do
   def deciders do
     [DomovoyCore.Decider.Person, Domovoy.Examples.Worktree.WorktreeRouteDecider]
   end
+
+  @doc """
+  The deciders that read a node, which a Decision names in its `node` option.
+  """
+  @spec node_deciders() :: [module()]
+  def node_deciders, do: [Domovoy.Examples.Worktree.WorktreeRouteDecider]
 end

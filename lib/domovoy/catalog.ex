@@ -37,7 +37,7 @@ defmodule Domovoy.Catalog do
       types: index(visible, &Type.type?/1, &entry/2),
       runners: index(visible, &Runner.runner?/1, &runner_entry/2),
       validators: Map.new(Curated.validators(), &curated_validator(&1, owned)),
-      deciders: Enum.map(Curated.deciders(), &entry(&1, Map.fetch!(owned, &1))),
+      deciders: Enum.map(Curated.deciders(), &decider_entry(&1, Map.fetch!(owned, &1))),
       owned: owned
     }
 
@@ -194,6 +194,11 @@ defmodule Domovoy.Catalog do
   @spec entry(module :: module(), plugin :: map()) :: entry()
   defp entry(module, plugin) do
     %{id: inspect(module), module: module, label: label(module, plugin), plugin: plugin.name}
+  end
+
+  @spec decider_entry(module :: module(), plugin :: map()) :: entry()
+  defp decider_entry(module, plugin) do
+    Map.put(entry(module, plugin), :reads_node?, module in Curated.node_deciders())
   end
 
   @spec label(module :: module(), plugin :: map()) :: String.t()

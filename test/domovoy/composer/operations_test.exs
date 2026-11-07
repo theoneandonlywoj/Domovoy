@@ -946,6 +946,26 @@ defmodule Domovoy.Composer.OperationsTest do
       refused(document, {:put_decision, "review", %{"prompt" => 1}}, :invalid_params)
       refused(document, {:put_decision, "review", %{"kind" => "stage"}}, :invalid_params)
     end
+
+    test "put_decision sets and clears the node the decider reads" do
+      document = scenario_a()
+
+      set =
+        edit_all(document, [{:put_decision, "review", %{"decider_options" => %{"node" => "ask"}}}])
+
+      assert set["vertices"]["review"]["decider_options"] == %{"node" => "ask"}
+
+      cleared = edit_all(set, [{:put_decision, "review", %{"decider_options" => %{}}}])
+      refute Map.has_key?(cleared["vertices"]["review"], "decider_options")
+
+      for options <- [%{"node" => 1}, %{"other" => "ask"}, ["node"]] do
+        refused(
+          document,
+          {:put_decision, "review", %{"decider_options" => options}},
+          :invalid_params
+        )
+      end
+    end
   end
 
   describe "choices" do

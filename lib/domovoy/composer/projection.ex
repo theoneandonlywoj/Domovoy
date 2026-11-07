@@ -506,6 +506,13 @@ defmodule Domovoy.Composer.Projection do
       next: vertex["next"],
       prompt: vertex["prompt"],
       decider: vertex["decider"],
+      decider_node: Document.decider_node(vertex),
+      node_names:
+        context.document
+        |> Document.all_nodes()
+        |> Enum.map(&elem(&1, 1))
+        |> Enum.uniq()
+        |> Enum.sort(),
       choices: Enum.map(vertex["choices"] || [], &route_row(context, name, &1)),
       issues: context.by_target[{:vertex, name}] || [],
       issue_count: vertex_issue_count(context, name)

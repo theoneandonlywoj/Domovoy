@@ -209,8 +209,43 @@ defmodule Domovoy.Composer.Analyzer do
         do: [],
         else: issue(:unknown_decider, nil, target, "Decision #{name} names an unknown decider.")
       ),
+      decider_node_issues(document, name, decision),
       choices_issues(document, name, decision["choices"])
     ]
+  end
+
+  # A decider that reads a node needs a `node` option naming a node of the document.
+  @spec decider_node_issues(document :: map(), name :: String.t(), decision :: map()) ::
+          [Issue.t()]
+  defp decider_node_issues(document, name, decision) do
+    target = {:vertex, name}
+
+    reads_node? =
+      Enum.any?(Catalog.deciders(), &(&1.id == decision["decider"] and &1.reads_node?))
+
+    case Document.decider_node(decision) do
+      nil when reads_node? ->
+        issue(
+          :missing_decider_node,
+          nil,
+          target,
+          "Decision #{name} needs the node its decider reads."
+        )
+
+      nil ->
+        []
+
+      node ->
+        if Enum.any?(Document.all_nodes(document), &match?({_stage, ^node, _node}, &1)),
+          do: [],
+          else:
+            issue(
+              :unknown_decider_node,
+              nil,
+              target,
+              "Decision #{name} reads node #{node}, which doesn't exist."
+            )
+    end
   end
 
   @spec decision_collisions(document :: Document.t(), name :: String.t()) :: found()

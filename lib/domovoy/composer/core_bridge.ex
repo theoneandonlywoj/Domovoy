@@ -143,11 +143,21 @@ defmodule Domovoy.Composer.CoreBridge do
       Decision.new(%{
         name: name,
         prompt: decision["prompt"],
-        decider: decider,
+        decider: decider_spec(decider, decision),
         choices: Enum.map(decision["choices"], &choice/1),
         metadata: metadata(decision)
       })
     end)
+  end
+
+  # The bare module when no option is set, so a decision without options keeps
+  # its fingerprint.
+  @spec decider_spec(decider :: module(), decision :: map()) :: module() | {module(), keyword()}
+  defp decider_spec(decider, decision) do
+    case Document.decider_node(decision) do
+      nil -> decider
+      node -> {decider, node: node}
+    end
   end
 
   @spec choice(choice :: map()) :: Choice.t()

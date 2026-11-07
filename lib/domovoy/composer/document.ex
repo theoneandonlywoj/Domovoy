@@ -122,6 +122,13 @@ defmodule Domovoy.Composer.Document do
   end
 
   @doc """
+  The node a decision's decider reads, from its `decider_options`, or nil.
+  """
+  @spec decider_node(decision :: map()) :: String.t() | nil
+  def decider_node(%{"decider_options" => %{"node" => node}}) when is_binary(node), do: node
+  def decider_node(_decision), do: nil
+
+  @doc """
   What an item's metadata holds as a description. Malformed metadata isn't a shape
   issue, because an optional tooltip mustn't stop a draft opening. A blank text counts
   as malformed.
@@ -204,6 +211,11 @@ defmodule Domovoy.Composer.Document do
     [
       expect(is_binary(vertex["prompt"]), target, "prompt"),
       expect(is_binary(vertex["decider"]), target, "decider"),
+      expect(
+        decider_options?(Map.get(vertex, "decider_options", %{})),
+        target,
+        "decider_options"
+      ),
       if(list?(choices),
         do: Enum.map(choices, &choice_shape(name, &1)),
         else: malformed(target, "choices")
@@ -295,6 +307,15 @@ defmodule Domovoy.Composer.Document do
 
   @spec plain_map?(term :: term()) :: boolean()
   defp plain_map?(term), do: is_map(term) and not is_struct(term)
+
+  @doc """
+  Whether a term is valid `decider_options`. The only option is `node`, the name
+  of the node the decider reads.
+  """
+  @spec decider_options?(term :: term()) :: boolean()
+  def decider_options?(term) do
+    plain_map?(term) and Enum.all?(term, &match?({"node", node} when is_binary(node), &1))
+  end
 
   @spec list?(term :: term()) :: boolean()
   defp list?(term), do: is_list(term) and not List.improper?(term)
