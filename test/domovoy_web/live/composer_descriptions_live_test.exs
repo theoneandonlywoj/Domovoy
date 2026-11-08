@@ -148,6 +148,68 @@ defmodule DomovoyWeb.ComposerDescriptionsLiveTest do
       refute has_element?(workflow, "#vertex-first-select #vertex-first-description")
     end
 
+    test "reads as text in the inspector of a selected node, stage or decision", %{conn: conn} do
+      for {document, target, stage, select} <- [
+            {sourced(), @made, "first", "#node-made-select"},
+            {sourced(), {:vertex, "first"}, nil, "#vertex-first-select"},
+            {scenario_a(), {:vertex, "review"}, nil, "#vertex-review-select"}
+          ] do
+        document = edit_all(document, [{:set_description, target, "Line one.\nLine two."}])
+        {_draft, view} = open(conn, document, stage)
+
+        refute has_element?(view, "#inspector-description")
+        click(view, select)
+        assert has_element?(view, "#inspector #inspector-description", "Line one.")
+      end
+    end
+
+    test "is no text in the inspector when absent, and a note when malformed", %{conn: conn} do
+      {_draft, view} = open(conn, sourced(), "first")
+      click(view, "#node-made-select")
+      assert has_element?(view, "#inspector")
+      refute has_element?(view, "#inspector-description")
+
+      {_draft, view} = open(conn, put_metadata(sourced(), @made_path, @sentinel), "first")
+      click(view, "#node-made-select")
+      assert has_element?(view, "#inspector-description.text-error")
+      refute render(view) =~ @sentinel
+    end
+
+    test "reads as text on a node, stage and decision card", %{conn: conn} do
+      for {document, target, stage, card} <- [
+            {sourced(), @made, "first", "#node-made"},
+            {sourced(), {:vertex, "first"}, nil, "#vertex-first"},
+            {scenario_a(), {:vertex, "review"}, nil, "#vertex-review"}
+          ] do
+        described = edit_all(document, [{:set_description, target, "Card text."}])
+        {_draft, view} = open(conn, described, stage)
+        assert has_element?(view, "#{card} > #{card}-description-text", "Card text.")
+        refute has_element?(view, "#{card} header #{card}-description-text")
+
+        {_draft, plain} = open(conn, document, stage)
+        refute has_element?(plain, "#{card}-description-text")
+
+        {_draft, broken} =
+          open(conn, put_metadata(document, target_path(target), @sentinel), stage)
+
+        assert has_element?(broken, "#{card}-description-text.text-error")
+        refute render(broken) =~ @sentinel
+      end
+    end
+
+    defp target_path({:node, stage, node}), do: ["vertices", stage, "nodes", node]
+    defp target_path({:vertex, name}), do: ["vertices", name]
+
+    test "reads as text on an input's row", %{conn: conn} do
+      document = edit_all(sourced(), [{:set_description, {:input, "name"}, "The name."}])
+      {_draft, view} = open(conn, document, "second")
+
+      assert has_element?(view, "#input-name #input-name-description-text", "The name.")
+
+      {_draft, plain} = open(conn, sourced(), "second")
+      refute has_element?(plain, "#input-name-description-text")
+    end
+
     test "on an earlier source is its origin node's", %{conn: conn} do
       document = edit_all(sourced(), [{:set_description, @made, "Origin text."}])
       {_draft, view} = open(conn, document, "second")
