@@ -17,14 +17,27 @@ test("Cmd or Ctrl+Z is undo, and with Shift it isn't", () => {
   assert.equal(isUndo({key: "z"}), false)
 })
 
-test("Escape closes the picker, then the confirmation, the gesture, idle Tools, the selection", () => {
-  const all = {picker: true, confirmation: true, gesture: true, tools: true, selection: true, editable: false}
+test("Escape closes the picker, then the confirmation, the gesture, idle Tools, the outline, the selection", () => {
+  const all = {picker: true, confirmation: true, gesture: true, tools: true, outline: true, selection: true, editable: false}
   assert.equal(escapeAction(all), "picker")
   assert.equal(escapeAction({...all, picker: false}), "confirmation")
   assert.equal(escapeAction({...all, picker: false, confirmation: false}), "gesture")
   assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false}), "tools")
-  assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false, tools: false}), "selection")
+  assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false, tools: false}), "outline")
+  assert.equal(escapeAction({...all, picker: false, confirmation: false, gesture: false, tools: false, outline: false}), "selection")
   assert.equal(escapeAction({}), null)
+})
+
+test("Escape leaves canvas only last, after the selection, and not while typing", () => {
+  assert.equal(escapeAction({selection: true, canvasOnly: true}), "selection")
+  assert.equal(escapeAction({outline: true, canvasOnly: true}), "outline")
+  assert.equal(escapeAction({gesture: true, canvasOnly: true}), "gesture")
+  assert.equal(escapeAction({canvasOnly: true}), "canvasOnly")
+  assert.equal(escapeAction({canvasOnly: true, editable: true}), null)
+})
+
+test("Escape while typing in the outline keeps it open", () => {
+  assert.equal(escapeAction({outline: true, editable: true}), null)
 })
 
 test("Escape while typing keeps the selection, but still cancels a gesture", () => {

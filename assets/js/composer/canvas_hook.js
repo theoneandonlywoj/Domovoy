@@ -8,17 +8,28 @@
 import * as Drag from "./drag.js"
 import {cubicPath, sliderMax, socketPoint, worldBox, zoomAt} from "./geometry.js"
 import {escapeAction, isEditable, isUndo} from "./keys.js"
-import {fitView, initial, panBy, transform, wheel} from "./viewport.js"
+import {PIN_DEFAULT, canPin, clampWidth} from "./panels.js"
+import {actualSize, fitSelection, fitView, initial, panBy, reveal, transform, wheel} from "./viewport.js"
 import {wirePaths} from "./wires.js"
 
 const SVG_NS = "http://www.w3.org/2000/svg"
 const NOT_SAVED = "That move wasn't saved, so the card went back."
 const NOT_CONNECTED = "Not connected, so nothing changed."
+const PIN_REFUSED = "Not enough room to pin: the canvas needs at least 600 px."
+// Only the dock preference is kept: no ids, names or values.
+const PIN_KEY = "composer:pin"
+const PIN_STEP = 16
 // The controls a press on a card leaves alone. Its name button drags too, because it
 // fills the header; a press with no movement still clicks it.
 const CARD_CONTROLS = "a, button:not([data-card-grip]), input, select, textarea, summary, label, [data-socket]"
 const CANVAS_CONTROLS = "a, button, input, select, textarea, summary, label, [contenteditable], [data-socket], [data-canvas-control]"
-const ESCAPE_BUTTONS = {picker: ["connect-close", "close-picker"], tools: ["close-tools"], selection: ["deselect-node"]}
+const ESCAPE_BUTTONS = {
+  picker: ["connect-close", "close-picker"],
+  tools: ["close-tools"],
+  outline: ["close-outline-panel"],
+  selection: ["deselect-node"],
+  canvasOnly: ["exit-canvas-only"],
+}
 
 const setAttr = (el, name, value) => {
   if (value === null) {
@@ -33,10 +44,12 @@ export default {
     this.composer = this.el.closest("#composer")
     this.canvas = this.el.closest("#stage-canvas")
     this.world = this.el.closest("#stage-world")
+    this.workspace = this.el.closest("#workspace")
     this.notice = this.canvas.querySelector("#canvas-notice")
     this.say("")
     this.level = this.world.dataset.level
     this.view = initial()
+    this.pin = this.loadPin()
     this.moves = new Map()
     this.gesture = null
     this.token = 0
@@ -54,7 +67,8 @@ export default {
       [this.composer, "contextmenu", () => this.cancelGesture()],
       [this.composer, "click", e => this.swallowClick(e), {capture: true}],
       [this.composer, "scroll", () => this.scheduleDraw(), {capture: true, passive: true}],
-      [this.canvas, "click", e => this.resetView(e)],
+      [this.composer, "click", e => this.togglePin(e)],
+      [this.canvas, "click", e => this.zoomCommand(e)],
       [this.canvas, "input", e => this.zoomSlider(e)],
       [this.canvas, "wheel", e => this.onWheel(e), {passive: false}],
       [this.canvas, "dblclick", e => this.openCard(e)],
@@ -67,13 +81,20 @@ export default {
       this.scheduleDraw()
     })
     this.mutations.observe(this.composer, {attributes: true, childList: true, characterData: true, subtree: true})
-    this.resizes = new ResizeObserver(() => this.scheduleDraw())
+    // A narrower workspace may undock the inspector, so a resize syncs as well as draws.
+    this.resizes = new ResizeObserver(() => {
+      this.sync()
+      this.scheduleDraw()
+    })
     this.resizes.observe(this.canvas)
+    this.resizes.observe(this.workspace)
 
     this.handleEvent("composer:focus", ({id}) => {
       this.pendingFocus = id
       this.syncFocus()
     })
+    // A remembered dock is applied first, so the first fit measures the canvas beside it.
+    this.syncDock()
     this.refit()
     this.sync()
     this.draw()
@@ -109,14 +130,22 @@ export default {
     return {x: Number(card.dataset.x), y: Number(card.dataset.y)}
   },
 
-  // Measures through `data-x/y` and offset sizes, which a world transform doesn't change.
-  // `view.zoom` stays the true scale; `fit` is the scale shown as 100%.
+  // A card's world box, through `data-x/y` and offset sizes, which a world transform
+  // doesn't change.
+  cardBox(card) {
+    const {x, y} = Drag.position(this.moves.get(card.dataset.node), this.serverPosition(card))
+    return {left: x, top: y, right: x + card.offsetWidth, bottom: y + card.offsetHeight}
+  },
+
+  selectedCard() {
+    const selected = this.canvas.dataset.selected
+    return selected === undefined ? null : [...this.cards()].find(card => card.dataset.node === selected)
+  },
+
+  // `view.zoom` stays the true scale; `fit` is the scale shown as 100%, and only this and a
+  // level change measure it.
   refit() {
-    const boxes = [...this.cards()].map(card => {
-      const {x, y} = Drag.position(this.moves.get(card.dataset.node), this.serverPosition(card))
-      return {left: x, top: y, right: x + card.offsetWidth, bottom: y + card.offsetHeight}
-    })
-    this.view = fitView(boxes, this.canvas.getBoundingClientRect())
+    this.view = fitView([...this.cards()].map(card => this.cardBox(card)), this.canvas.getBoundingClientRect())
     this.fit = this.view.zoom
   },
 
@@ -131,6 +160,7 @@ export default {
       this.gesture = null
       if (gesture) this.endWire(gesture)
     }
+    this.syncDock()
     setAttr(this.world, "style", `transform: ${transform(this.view)};`)
     setAttr(this.canvas, "data-gesture", this.gesture ? "true" : null)
 
@@ -153,7 +183,7 @@ export default {
     const percent = this.canvas.querySelector("#canvas-zoom-percent")
     const fit = this.fit ?? 1
     const value = String(Math.round((this.view.zoom / fit) * 100))
-    const label = `${value}%`
+    const label = `Fit · ${value}%`
     if (percent && percent.textContent !== label) percent.textContent = label
     const slider = this.canvas.querySelector("#canvas-zoom-slider")
     if (slider) {
@@ -164,11 +194,91 @@ export default {
     }
   },
 
+  // The inspector docks while it is shown, pinned and leaves the canvas room; otherwise it
+  // floats and the preference waits. Showing it, or changing the dock, pans only to reveal
+  // the selected card from under it.
+  syncDock() {
+    const inspector = this.workspace.querySelector("#inspector-panel")
+    const docked = Boolean(inspector) && this.pin.pinned && !this.composer.hasAttribute("data-canvas-only") &&
+      canPin(this.workspace.clientWidth, this.pin.width)
+    setAttr(this.workspace, "data-pinned", docked ? "true" : null)
+    setAttr(this.workspace, "style", docked ? `--pin-width: ${this.pin.width}px;` : null)
+    const pin = this.workspace.querySelector("#pin-inspector")
+    if (pin) setAttr(pin, "aria-pressed", String(docked))
+    const handle = this.workspace.querySelector("#inspector-resize")
+    if (handle) setAttr(handle, "aria-valuenow", String(this.pin.width))
+
+    // Nothing to reveal before the first fit, nor during a gesture other than resizing.
+    if (this.fit === undefined || (this.gesture && this.gesture.kind !== "resize")) return
+    const shown = inspector ? `${this.canvas.dataset.selected}:${docked && this.pin.width}` : null
+    if (shown === this.inspectorShown) return
+    this.inspectorShown = shown
+    if (inspector) this.revealSelected(inspector)
+  },
+
+  revealSelected(inspector) {
+    const card = this.selectedCard()
+    if (!card) return
+    const canvas = this.canvas.getBoundingClientRect()
+    const panel = inspector.getBoundingClientRect()
+    const box = this.cardBox(card)
+    // The panel's rect in canvas coordinates; a hidden one has no size.
+    const left = panel.left - canvas.left, top = panel.top - canvas.top
+    const screen = {
+      left: box.left * this.view.zoom + this.view.x,
+      right: box.right * this.view.zoom + this.view.x,
+      top: box.top * this.view.zoom + this.view.y,
+      bottom: box.bottom * this.view.zoom + this.view.y,
+    }
+    const covered = panel.width > 0 && screen.right > left && screen.left < left + panel.width &&
+      screen.bottom > top && screen.top < top + panel.height
+    if (!covered || left <= 0) return
+    this.view = reveal(this.view, box, {left: 0, top: 0, right: Math.min(canvas.width, left), bottom: canvas.height})
+  },
+
+  loadPin() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PIN_KEY))
+      return {pinned: saved?.pinned === true, width: clampWidth(Number(saved?.width) || PIN_DEFAULT)}
+    } catch {
+      return {pinned: false, width: PIN_DEFAULT}
+    }
+  },
+
+  savePin() {
+    try {
+      localStorage.setItem(PIN_KEY, JSON.stringify({pinned: this.pin.pinned, width: this.pin.width}))
+    } catch {
+      // Storage may be off; the dock still works for this page.
+    }
+  },
+
+  // The pin button sits outside the canvas, so this listens on the composer. It acts on
+  // the dock it reports: a stored pin that can't dock now is refused, not dropped.
+  togglePin(event) {
+    if (!event.target.closest("#pin-inspector")) return
+    if (this.workspace.hasAttribute("data-pinned")) this.pin = {...this.pin, pinned: false}
+    else if (canPin(this.workspace.clientWidth, this.pin.width)) this.pin = {...this.pin, pinned: true}
+    else return this.say(PIN_REFUSED)
+    this.savePin()
+    this.sync()
+    this.scheduleDraw()
+  },
+
+  // A width that would leave the canvas too little room is skipped.
+  resizeDock(width) {
+    const next = clampWidth(width)
+    if (next === this.pin.width || !canPin(this.workspace.clientWidth, next)) return
+    this.pin = {...this.pin, width: next}
+    this.sync()
+    this.scheduleDraw()
+  },
+
   // A server-selected issue target may arrive after the event, in the next patch.
   syncFocus() {
     if (typeof document === "undefined") return
     const tools = document.getElementById("composer-tools")
-    const inspector = document.getElementById("right-rail")
+    const inspector = document.getElementById("inspector-panel")
     const confirmation = document.getElementById("confirm-replace-literal")
     const clear = document.getElementById("clear-preview")
     const activeId = document.activeElement?.id
@@ -190,6 +300,11 @@ export default {
         ;(target || document.getElementById("open-tools"))?.focus()
       }
     }
+    const exit = document.getElementById("exit-canvas-only")
+    if (this.canvasOnlyMounted && !exit && (!document.activeElement || document.activeElement === document.body)) {
+      document.getElementById("canvas-only")?.focus()
+    }
+    this.canvasOnlyMounted = Boolean(exit)
     this.toolsMounted = Boolean(tools)
     this.inspectorMounted = Boolean(inspector)
     this.confirmationMounted = Boolean(confirmation)
@@ -280,6 +395,11 @@ export default {
     const pointer = {x: event.clientX, y: event.clientY}
     const socket = event.target.closest("[data-source], [data-after-source]")
 
+    if (event.target.closest("#inspector-resize")) {
+      event.preventDefault()
+      this.gesture = {kind: "resize", pointer, start: pointer, width: this.pin.width, pointerId: event.pointerId, moved: false}
+      return
+    }
     if (event.target.closest("[data-canvas-control]")) return
     // A run is read-only: its sockets and cards start nothing, and the canvas still pans.
     if (this.readOnly() && (socket || event.target.closest("article[data-node]"))) return
@@ -353,6 +473,8 @@ export default {
       if (!gesture.moved && !Drag.pastThreshold(gesture.start, pointer)) return
       this.beginMoving(gesture)
       if (gesture.kind === "pan") this.view = panBy(this.view, pointer.x - gesture.pointer.x, pointer.y - gesture.pointer.y)
+      // The handle is on the dock's left edge, so dragging left widens it.
+      if (gesture.kind === "resize") this.resizeDock(gesture.width + gesture.start.x - pointer.x)
       gesture.pointer = pointer
       if (gesture.kind === "wire") this.updateOver(gesture)
     }
@@ -376,6 +498,7 @@ export default {
 
     if (gesture.kind === "card") this.releaseCard(gesture)
     else if (gesture.kind === "wire") this.dropWire(gesture, event)
+    else if (gesture.kind === "resize") this.savePin()
     else if (!gesture.moved && !Drag.pastThreshold(gesture.start, {x: event.clientX, y: event.clientY}) &&
       this.canvas.contains(event.target) && !event.target.closest(`article[data-node], ${CANVAS_CONTROLS}`)) {
       this.push("deselect_node", {})
@@ -392,6 +515,7 @@ export default {
     this.endWire(gesture)
     this.say("")
     if (gesture.kind === "card") this.record(gesture.node, Drag.cancel(this.moves.get(gesture.node)))
+    if (gesture.kind === "resize") this.pin = {...this.pin, width: gesture.width}
     this.sync()
     this.scheduleDraw()
   },
@@ -416,11 +540,22 @@ export default {
     event.preventDefault()
   },
 
-  resetView(event) {
-    if (!event.target.closest("#canvas-zoom-reset")) return
+  // Fit re-measures the canvas as it is now; Fit selection and Actual size move the view
+  // only, so the percentage keeps meaning the last fit.
+  zoomCommand(event) {
+    const button = event.target.closest("#canvas-fit, #canvas-fit-selection, #canvas-actual-size")
+    if (!button) return
     event.preventDefault()
     if (this.gesture) return
-    this.refit()
+    const rect = this.canvas.getBoundingClientRect()
+    if (button.id === "canvas-fit") {
+      this.refit()
+    } else if (button.id === "canvas-actual-size") {
+      this.view = actualSize(this.view, {x: rect.width / 2, y: rect.height / 2}, this.fit ?? 1)
+    } else {
+      const card = this.selectedCard()
+      if (card) this.view = fitSelection(this.cardBox(card), rect)
+    }
     this.sync()
     this.scheduleDraw()
   },
@@ -571,12 +706,16 @@ export default {
       }
     } else if (event.key === "Escape") {
       this.escape(event)
+    } else if (event.target?.id === "inspector-resize" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault()
+      this.resizeDock(this.pin.width + (event.key === "ArrowLeft" ? PIN_STEP : -PIN_STEP))
+      this.savePin()
     }
   },
 
-  // A confirmation handles its own Escape, with `phx-window-keydown`.
+  // A modal dialog handles its own Escape, with `phx-window-keydown`.
   escape(event) {
-    const confirmation = Boolean(document.getElementById("confirm-replace-literal"))
+    const confirmation = Boolean(document.querySelector("[aria-modal='true']"))
     // Both pickers are covered by the confirmation. Its separate window listener
     // must be the only one to act on this key, preserving their pending state.
     const picker = !confirmation && ESCAPE_BUTTONS.picker
@@ -586,13 +725,15 @@ export default {
       confirmation,
       gesture: Boolean(this.gesture),
       tools: Boolean(document.getElementById("composer-tools")),
+      outline: document.getElementById("outline-panel")?.hidden === false,
       selection: Boolean(document.getElementById("deselect-node")),
+      canvasOnly: Boolean(document.getElementById("exit-canvas-only")),
       editable: isEditable(event.target),
     })
 
     if (action === "gesture") this.cancelGesture()
     else if (action === "picker") picker.click()
-    else if (action === "tools" || action === "selection") {
+    else if (action === "tools" || action === "outline" || action === "selection" || action === "canvasOnly") {
       ESCAPE_BUTTONS[action].map(id => document.getElementById(id)).find(Boolean)?.click()
     }
   },

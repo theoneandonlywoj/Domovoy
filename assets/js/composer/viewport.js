@@ -53,4 +53,19 @@ export function fitView(boxes, {width, height}) {
   return {x: width / 2 - centreX * zoom, y: height / 2 - centreY * zoom, zoom}
 }
 
+// True scale 1 at `centre`, so the percentage shows 100 / fit. Small graphs fit at 1 already.
+export const actualSize = (view, centre, fit) => zoomAt(view, centre, 1, fit)
+
+export const fitSelection = (box, canvas) => fitView([box], canvas)
+
+// The smallest pan bringing a world box inside `visible`, a rect in canvas coordinates;
+// the same view when it is already inside.
+export function reveal(view, box, visible) {
+  const left = box.left * view.zoom + view.x, right = box.right * view.zoom + view.x
+  const top = box.top * view.zoom + view.y, bottom = box.bottom * view.zoom + view.y
+  const dx = left < visible.left ? visible.left - left : right > visible.right ? visible.right - right : 0
+  const dy = top < visible.top ? visible.top - top : bottom > visible.bottom ? visible.bottom - bottom : 0
+  return dx === 0 && dy === 0 ? view : panBy(view, dx, dy)
+}
+
 export const transform = view => `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`

@@ -10,11 +10,14 @@ export const isUndo = event =>
 
 // What one Escape closes, innermost first. `null` leaves it to the browser. Escape while
 // typing must not drop the selection, and the inspector you are typing in with it.
-export function escapeAction({picker, confirmation, gesture, tools, selection, editable}) {
+// Canvas only is left last, once nothing inside it is open.
+export function escapeAction({picker, confirmation, gesture, tools, outline, selection, canvasOnly, editable}) {
   if (picker) return "picker"
   if (confirmation) return "confirmation"
   if (gesture) return "gesture"
   if (tools && !editable) return "tools"
+  if (outline && !editable) return "outline"
   if (selection && !editable) return "selection"
+  if (canvasOnly && !editable) return "canvasOnly"
   return null
 }

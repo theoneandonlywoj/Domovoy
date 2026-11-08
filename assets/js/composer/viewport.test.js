@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import {test} from "node:test"
 import {screenToWorld, zoomRange} from "./geometry.js"
-import {FIT_FLOOR, fitView, initial, panBy, transform, wheel} from "./viewport.js"
+import {FIT_FLOOR, actualSize, fitSelection, fitView, initial, panBy, reveal, transform, wheel} from "./viewport.js"
 
 const box = (left, top, width = 200, height = 100) => ({left, top, right: left + width, bottom: top + height})
 
@@ -125,4 +125,33 @@ test("a graph too big on both axes still shows a whole card at the floor", () =>
 
 test("the transform translates then scales", () => {
   assert.equal(transform({x: 1, y: 2, zoom: 0.5}), "translate(1px, 2px) scale(0.5)")
+})
+
+test("reveal keeps the same view when the box is visible, so opening a panel can't refit", () => {
+  const view = {x: 40, y: 20, zoom: 0.5}
+  assert.equal(reveal(view, box(100, 100), {left: 0, top: 0, right: 500, bottom: 400}), view)
+})
+
+test("reveal pans just enough to bring an occluded box inside the visible rect", () => {
+  const view = {x: 0, y: 0, zoom: 0.5}
+  // Screen 300..400 wide, 50..100 tall, under a panel from 350.
+  assert.deepEqual(reveal(view, box(600, 100), {left: 0, top: 0, right: 350, bottom: 400}), {x: -50, y: 0, zoom: 0.5})
+  assert.deepEqual(reveal(view, box(-100, -40), {left: 0, top: 0, right: 350, bottom: 400}), {x: 50, y: 20, zoom: 0.5})
+})
+
+test("Actual size is true scale 1, which shows as 100 / fit percent", () => {
+  const fit = 0.62
+  const centre = {x: 400, y: 300}
+  const next = actualSize({x: 10, y: 20, zoom: fit}, centre, fit)
+  assert.equal(next.zoom, 1)
+  assert.equal(Math.round((next.zoom / fit) * 100), 161)
+  const world = screenToWorld({x: 10, y: 20, zoom: fit}, centre)
+  assert.deepEqual(screenToWorld(next, centre), world)
+})
+
+test("Fit selection centres one box and never enlarges it", () => {
+  const canvas = {width: 800, height: 600}
+  const next = fitSelection(box(1000, 500), canvas)
+  assert.equal(next.zoom, 1)
+  assert.ok(inside(onScreen(next, box(1000, 500)), canvas, 64))
 })
