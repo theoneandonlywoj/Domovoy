@@ -1,5 +1,10 @@
 import Config
 
+config :domovoy, composer_runs_enabled: true
+
+# How often run summaries are swept; test leaves it unset and sweeps by hand.
+config :domovoy, run_summary_sweep_ms: 30_000
+
 # Password and port are resolved by config/runtime.exs only at runtime.
 # Configure your database
 config :domovoy, Domovoy.Repo,
@@ -19,7 +24,7 @@ config :domovoy, DomovoyWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
-  check_origin: false,
+  check_origin: ["//localhost", "//127.0.0.1"],
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "jTJcYyMihZZW91svWxjHmccBaWW/RxkD2XfVi34F/tkp17k6Dd7j1zpHmp7mh0cq",

@@ -18,6 +18,17 @@ defmodule DomovoyWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+
+    live_session :composer do
+      live "/composer", WorkflowsLive, :index
+      live "/composer/runs", RunsLive, :index
+      live "/composer/runs/:run_id", ComposerLive, :run
+      live "/composer/runs/:run_id/stages/:stage", ComposerLive, :run_stage
+      live "/composer/:id", ComposerLive, :workflow
+      live "/composer/:id/stages/:stage", ComposerLive, :stage
+    end
+
+    get "/composer/:id/export", WorkflowExportController, :show
   end
 
   # Other scopes may use custom stacks.
