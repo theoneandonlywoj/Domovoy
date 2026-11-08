@@ -66,7 +66,7 @@ defmodule Domovoy.MixProject do
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.2.0"},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:phoenix_live_dashboard, "~> 0.9.1"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.5", runtime: Mix.env() == :dev},
       {:heroicons,
@@ -91,7 +91,7 @@ defmodule Domovoy.MixProject do
       {:jason, "~> 1.2"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:dns_cluster, "~> 0.2.0"},
+      {:dns_cluster, "~> 0.3.1"},
       {:bandit, "~> 1.5"}
     ]
   end
