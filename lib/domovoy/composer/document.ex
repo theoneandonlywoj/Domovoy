@@ -22,11 +22,16 @@ defmodule Domovoy.Composer.Document do
 
   A node, stage, decision or input may also hold
   `"metadata" => %{"description" => "Looks up the worktree."}`, which `description/1` reads.
+  A decision's metadata may also hold `"evidence"`, and the document's own `"metadata"`
+  may hold `"outputs"`, each a list of `%{"stage" => s, "node" => n}`: presentation only,
+  never sent to Core.
   """
 
   alias Domovoy.Composer.Issue
 
   @type t :: map()
+  @typedoc "A node named by its stage, as evidence and outputs hold it."
+  @type ref :: %{String.t() => String.t()}
 
   @starter "main"
 
@@ -142,6 +147,41 @@ defmodule Domovoy.Composer.Document do
   def description(%{"metadata" => metadata}) when is_map(metadata), do: :absent
   def description(%{"metadata" => _other}), do: :malformed
   def description(_item), do: :absent
+
+  @doc """
+  The nodes a decision shows beside its choices, from `metadata.evidence`, each as
+  `%{"stage" => stage, "node" => node}`. Absent or malformed evidence is none.
+  """
+  @spec evidence(decision :: map()) :: [ref()]
+  def evidence(decision), do: refs(decision, "evidence")
+
+  @doc """
+  The nodes a run's results show first, as the workflow's outputs, from the document's
+  `metadata.outputs`, in the same shape as `evidence/1`. Absent or malformed is none.
+  """
+  @spec outputs(document :: t()) :: [ref()]
+  def outputs(document), do: refs(document, "outputs")
+
+  # Presentation only, so a malformed list is ignored rather than reported.
+  @spec refs(item :: term(), key :: String.t()) :: [ref()]
+  defp refs(%{"metadata" => %{} = metadata}, key) do
+    with refs when is_list(refs) <- metadata[key],
+         false <- List.improper?(refs),
+         true <- Enum.all?(refs, &ref?/1) do
+      refs
+    else
+      _malformed -> []
+    end
+  end
+
+  defp refs(_item, _key), do: []
+
+  @spec ref?(term :: term()) :: boolean()
+  defp ref?(%{"stage" => stage, "node" => node} = ref)
+       when is_binary(stage) and is_binary(node) and map_size(ref) == 2,
+       do: true
+
+  defp ref?(_term), do: false
 
   @doc """
   Whether every string in a term is valid UTF-8 without NUL. Postgres rejects NUL

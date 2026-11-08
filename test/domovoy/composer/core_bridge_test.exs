@@ -100,6 +100,22 @@ defmodule Domovoy.Composer.CoreBridgeTest do
     end
   end
 
+  test "evidence and outputs stay out of Core, so the fingerprint is the same" do
+    document = Domovoy.Examples.Definitions.cracow_review()
+    estimate = %{"stage" => "estimate_price", "node" => "estimate"}
+
+    shown =
+      edit_all(document, [
+        {:put_evidence, "review", [estimate]},
+        {:put_outputs, [estimate]}
+      ])
+
+    assert built!(shown) == built!(document)
+    assert fingerprint(shown) == fingerprint(document)
+  end
+
+  defp fingerprint(document), do: DomovoyCore.Definition.fingerprint(built!(document)).root
+
   describe "build/1 on execution options" do
     test "overrides only max_attempts" do
       document =

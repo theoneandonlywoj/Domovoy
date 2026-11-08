@@ -4,9 +4,12 @@ defmodule Domovoy.Composer.OperationsTest do
 
   import Domovoy.ComposerFixtures, only: [edit_all: 2, scenario_a: 0]
 
+  alias Domovoy.Composer.Analyzer
   alias Domovoy.Composer.Document
+  alias Domovoy.Composer.Export
   alias Domovoy.Composer.Issue
   alias Domovoy.Composer.Operations
+  alias Domovoy.Examples.Definitions
   alias Domovoy.ComposerFixtures.UnloadedProbe
 
   @string "DomovoyCore.Type.String"
@@ -650,6 +653,118 @@ defmodule Domovoy.Composer.OperationsTest do
 
     defp described_resolve do
       {:set_description, {:node, "prepare", "resolve_worktree"}, "Text."}
+    end
+  end
+
+  describe "evidence and outputs" do
+    @estimate %{"stage" => "estimate_price", "node" => "estimate"}
+    @area %{"stage" => "estimate_price", "node" => "area_model"}
+
+    # The review seed with `area_model` and `estimate` as review's evidence and outputs.
+    defp with_refs(document \\ Definitions.cracow_review()) do
+      edit_all(document, [
+        {:put_evidence, "review", [@estimate, @area]},
+        {:put_outputs, [@estimate]}
+      ])
+    end
+
+    test "are kept once each, by stage and node, and the same set again is no edit" do
+      document = with_refs()
+
+      assert Document.evidence(document["vertices"]["review"]) == [@area, @estimate]
+      assert Document.outputs(document) == [@estimate]
+
+      assert {:ok, ^document, :none} =
+               Operations.edit(document, {:put_evidence, "review", [@estimate, @area, @area]})
+
+      assert {:ok, ^document, :none} = Operations.edit(document, {:put_outputs, [@estimate]})
+    end
+
+    test "none leaves no key behind, nor an empty metadata map" do
+      document = Definitions.cracow_review()
+      cleared = edit_all(with_refs(), [{:put_outputs, []}, {:put_evidence, "review", []}])
+
+      refute is_map_key(cleared, "metadata")
+
+      assert cleared["vertices"]["review"]["metadata"] ==
+               document["vertices"]["review"]["metadata"]
+    end
+
+    test "name existing nodes only, in the right shape, without echoing a value" do
+      document = Definitions.cracow_review()
+
+      refused(
+        document,
+        {:put_evidence, "review", [%{"stage" => "estimate_price", "node" => "x"}]},
+        :unknown_node
+      )
+
+      refused(
+        document,
+        {:put_outputs, [%{"stage" => "nope", "node" => "estimate"}]},
+        :unknown_stage
+      )
+
+      refused(document, {:put_evidence, "estimate_price", [@estimate]}, :unknown_decision)
+
+      for refs <- [
+            [%{"stage" => "estimate_price"}],
+            [Map.put(@estimate, "extra", @sentinel)],
+            [@sentinel],
+            [@estimate | @sentinel]
+          ] do
+        refute refused(document, {:put_outputs, refs}, :invalid_params).message =~ @sentinel
+      end
+
+      refused(document, {:put_outputs, nil}, :invalid_params)
+    end
+
+    test "a description edit keeps them, and evidence keeps the description" do
+      document =
+        edit_all(with_refs(), [
+          {:set_description, {:vertex, "review"}, "Other."},
+          {:put_evidence, "review", [@estimate]}
+        ])
+
+      assert document["vertices"]["review"]["metadata"] == %{
+               "description" => "Other.",
+               "evidence" => [@estimate]
+             }
+    end
+
+    test "follow a renamed node" do
+      document = edit_all(with_refs(), [{:rename_node, "estimate_price", "estimate", "price"}])
+      price = %{@estimate | "node" => "price"}
+
+      assert Document.evidence(document["vertices"]["review"]) == [@area, price]
+      assert Document.outputs(document) == [price]
+      assert Analyzer.issues(document) == []
+    end
+
+    test "drop a removed node, and the draft still validates" do
+      document = edit_all(with_refs(), [{:remove_node, "estimate_price", "estimate"}])
+
+      assert Document.evidence(document["vertices"]["review"]) == [@area]
+      assert Document.outputs(document) == []
+      assert {:valid, _valid} = Export.validate(document)
+    end
+
+    test "drop every node of a removed stage, and the draft still validates" do
+      notes = %{"stage" => "notes", "node" => "notes_model"}
+
+      document =
+        with_refs()
+        |> edit_all([
+          {:add_stage, "notes"},
+          {:add_node, "notes", "Domovoy.Examples.Cracow.AreaModel", "notes_model"},
+          {:put_evidence, "review", [@estimate, notes]},
+          {:put_outputs, [notes, @estimate]},
+          {:remove_vertex, "notes"}
+        ])
+
+      assert Document.evidence(document["vertices"]["review"]) == [@estimate]
+      assert Document.outputs(document) == [@estimate]
+      assert {:valid, _valid} = Export.validate(document)
     end
   end
 

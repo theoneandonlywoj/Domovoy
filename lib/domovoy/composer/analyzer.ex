@@ -59,7 +59,8 @@ defmodule Domovoy.Composer.Analyzer do
   defp workflow_issues(document) do
     [
       name_issues(document["name"], :workflow, :invalid_workflow_name),
-      vertex_exists(document, document["start"], :workflow, :unknown_start, "The start")
+      vertex_exists(document, document["start"], :workflow, :unknown_start, "The start"),
+      ref_issues(document, Document.outputs(document), :workflow, "The workflow's outputs name")
     ]
   end
 
@@ -210,6 +211,12 @@ defmodule Domovoy.Composer.Analyzer do
         else: issue(:unknown_decider, nil, target, "Decision #{name} names an unknown decider.")
       ),
       decider_node_issues(document, name, decision),
+      ref_issues(
+        document,
+        Document.evidence(decision),
+        target,
+        "Decision #{name}'s evidence names"
+      ),
       choices_issues(document, name, decision["choices"])
     ]
   end
@@ -245,6 +252,26 @@ defmodule Domovoy.Composer.Analyzer do
               target,
               "Decision #{name} reads node #{node}, which doesn't exist."
             )
+    end
+  end
+
+  # Evidence and outputs are only shown, so a ref naming no node of the document would
+  # show nothing; edits keep them current, and a hand-built one is reported here.
+  @spec ref_issues(
+          document :: Document.t(),
+          refs :: [Document.ref()],
+          target :: Issue.target(),
+          owner :: String.t()
+        ) :: found()
+  defp ref_issues(document, refs, target, owner) do
+    for %{"stage" => stage, "node" => node} <- refs,
+        not is_map_key(Document.nodes(document, stage), node) do
+      issue(
+        :unknown_evidence_node,
+        nil,
+        target,
+        "#{owner} node #{node} of #{stage}, which doesn't exist."
+      )
     end
   end
 

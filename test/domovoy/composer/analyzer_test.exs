@@ -900,6 +900,33 @@ defmodule Domovoy.Composer.AnalyzerTest do
       )
     end
 
+    test "evidence and outputs naming no node of the document are reported, and nothing else" do
+      document = route_run()
+      ghost = [%{"stage" => "main", "node" => "ghost"}]
+      kept = [%{"stage" => "main", "node" => "resolve"}]
+
+      assert document
+             |> put_in(["vertices", "route", "metadata"], %{"evidence" => kept})
+             |> Map.put("metadata", %{"outputs" => kept})
+             |> Analyzer.issues() == []
+
+      issue =
+        document
+        |> put_in(["vertices", "route", "metadata"], %{"evidence" => ghost})
+        |> reported(:unknown_evidence_node, {:vertex, "route"})
+
+      assert issue.message =~ "ghost"
+
+      reported(
+        Map.put(document, "metadata", %{"outputs" => ghost}),
+        :unknown_evidence_node,
+        :workflow
+      )
+
+      # Malformed refs are presentation that is ignored, never a shape issue.
+      assert document |> Map.put("metadata", %{"outputs" => "x"}) |> Analyzer.issues() == []
+    end
+
     test "a producer with an unknown runner adds no second issue to its reader" do
       document =
         two_stages([

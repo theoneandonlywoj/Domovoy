@@ -105,6 +105,7 @@ defmodule Domovoy.Composer.Operations do
         document
         |> update_in(["vertices", stage, "nodes"], &Map.delete(&1, name))
         |> update_placements(&Map.delete(&1, name))
+        |> update_refs(&Enum.reject(&1, fn ref -> ref == ref(stage, name) end))
 
       {:ok, updated, :definition}
     end
@@ -215,7 +216,9 @@ defmodule Domovoy.Composer.Operations do
   defp apply_op(document, {:set_description, target, text}) when is_binary(text) do
     with {:ok, path} <- metadata_path(document, target),
          :ok <- check_description(text) do
-      {:ok, put_in(document, path, %{"description" => text}), :definition}
+      # Merged, so evidence or outputs beside the description stay.
+      {:ok, update_in(document, path, &Map.put(metadata_map(&1), "description", text)),
+       :definition}
     end
   end
 
@@ -296,6 +299,7 @@ defmodule Domovoy.Composer.Operations do
         |> update_in(["vertices"], &Map.delete(&1, name))
         |> update_in(["layout", "workflow"], &Map.delete(&1, name))
         |> update_in(["layout", "stages"], &Map.delete(&1, name))
+        |> update_refs(&Enum.reject(&1, fn ref -> ref["stage"] == name end))
 
       {:ok, updated, :definition}
     end
@@ -323,6 +327,21 @@ defmodule Domovoy.Composer.Operations do
         end
 
       {:ok, put_in(document, ["vertices", name], decision), :definition}
+    end
+  end
+
+  defp apply_op(document, {:put_evidence, decision, refs})
+       when is_binary(decision) and is_list(refs) do
+    with {:ok, current} <- fetch_decision(document, decision),
+         {:ok, refs} <- check_refs(document, refs) do
+      {:ok, put_in(document, ["vertices", decision], put_refs(current, "evidence", refs)),
+       :definition}
+    end
+  end
+
+  defp apply_op(document, {:put_outputs, refs}) when is_list(refs) do
+    with {:ok, refs} <- check_refs(document, refs) do
+      {:ok, put_refs(document, "outputs", refs), :definition}
     end
   end
 
@@ -380,6 +399,79 @@ defmodule Domovoy.Composer.Operations do
   defp check_description(text) do
     if String.trim(text) == "", do: {:error, invalid_params()}, else: :ok
   end
+
+  @spec metadata_map(metadata :: term()) :: map()
+  defp metadata_map(metadata) when is_map(metadata), do: metadata
+  defp metadata_map(_absent_or_malformed), do: %{}
+
+  # Evidence and outputs
+
+  @spec ref(stage :: String.t(), node :: String.t()) :: Document.ref()
+  defp ref(stage, node), do: %{"stage" => stage, "node" => node}
+
+  # Every ref names a node of the document; they are kept once each, by stage then node,
+  # so the same set saved again is no edit.
+  @spec check_refs(document :: Document.t(), refs :: list()) ::
+          {:ok, [Document.ref()]} | {:error, Issue.t()}
+  defp check_refs(document, refs) do
+    checked =
+      if List.improper?(refs),
+        do: {:error, invalid_params()},
+        else: Enum.find_value(refs, :ok, &ref_issue(document, &1))
+
+    with :ok <- checked, do: {:ok, sort_refs(refs)}
+  end
+
+  # Nil for a ref naming a node of the document, else why not.
+  @spec ref_issue(document :: Document.t(), ref :: term()) :: {:error, Issue.t()} | nil
+  defp ref_issue(document, %{"stage" => stage, "node" => node} = ref)
+       when binaries(stage, node) and map_size(ref) == 2 do
+    with {:ok, _node} <- fetch_node(document, stage, node), do: nil
+  end
+
+  defp ref_issue(_document, _ref), do: {:error, invalid_params()}
+
+  @spec sort_refs(refs :: [Document.ref()]) :: [Document.ref()]
+  defp sort_refs(refs), do: refs |> Enum.uniq() |> Enum.sort_by(&{&1["stage"], &1["node"]})
+
+  # No refs leave no key, and no metadata at all once nothing else is in it.
+  @spec put_refs(item :: map(), key :: String.t(), refs :: [Document.ref()]) :: map()
+  defp put_refs(item, key, refs) do
+    metadata = item["metadata"] |> metadata_map() |> Map.delete(key)
+    metadata = if refs == [], do: metadata, else: Map.put(metadata, key, refs)
+
+    if metadata == %{},
+      do: Map.delete(item, "metadata"),
+      else: Map.put(item, "metadata", metadata)
+  end
+
+  # Evidence and outputs follow a renamed node and drop a removed one, so a ref, which
+  # is presentation only, never names a node that isn't there and never blocks a build.
+  @spec update_refs(document :: Document.t(), fun :: ([Document.ref()] -> [Document.ref()])) ::
+          Document.t()
+  defp update_refs(document, fun) do
+    vertices =
+      Map.new(document["vertices"], fn
+        {name, %{"kind" => "decision"} = decision} ->
+          {name, rewrite_refs(decision, "evidence", Document.evidence(decision), fun)}
+
+        other ->
+          other
+      end)
+
+    document
+    |> Map.put("vertices", vertices)
+    |> rewrite_refs("outputs", Document.outputs(document), fun)
+  end
+
+  @spec rewrite_refs(
+          item :: map(),
+          key :: String.t(),
+          refs :: [Document.ref()],
+          fun :: ([Document.ref()] -> [Document.ref()])
+        ) :: map()
+  defp rewrite_refs(item, _key, [], _fun), do: item
+  defp rewrite_refs(item, key, refs, fun), do: put_refs(item, key, sort_refs(fun.(refs)))
 
   @spec keep_metadata(current :: map() | nil, input :: map()) :: map()
   defp keep_metadata(%{"metadata" => metadata}, input), do: Map.put(input, "metadata", metadata)
@@ -925,6 +1017,9 @@ defmodule Domovoy.Composer.Operations do
     renamed
     |> update_in(["vertices", stage, "nodes"], &rename_key(&1, old, new))
     |> update_placements(&rename_key(&1, old, new))
+    |> update_refs(
+      &Enum.map(&1, fn ref -> if ref == ref(stage, old), do: ref(stage, new), else: ref end)
+    )
   end
 
   # `layout` isn't validated when a draft loads, and removing an input must keep working
