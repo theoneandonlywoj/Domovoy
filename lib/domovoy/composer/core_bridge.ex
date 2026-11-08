@@ -5,8 +5,8 @@ defmodule Domovoy.Composer.CoreBridge do
   Everything resolves through `Domovoy.Catalog`. A binding and a literal both take
   the type their field declares, whatever the source gives, so an Any field binds
   as Any. The layout travels in the workflow's metadata, which is outside the
-  fingerprint. So does a valid description, in its node's, stage's or decision's
-  metadata; an input's stays in the document.
+  fingerprint. So does a valid description, in its node's, stage's, decision's or
+  input's metadata.
 
   An issue's message is built from document names, never from an exception, because
   some Core raises echo values.
@@ -106,10 +106,20 @@ defmodule Domovoy.Composer.CoreBridge do
       Enum.reduce(input, %{type: type.module}, fn
         {"required", required}, built -> Map.put(built, :required, required)
         {"default", default}, built -> Map.put(built, :default, default(input["type"], default))
+        {"metadata", _metadata}, built -> put_description(built, input)
         _other, built -> built
       end)
 
     {name, built}
+  end
+
+  # Core writes an input's metadata whenever it's given, so an empty one stays out.
+  @spec put_description(built :: map(), input :: map()) :: map()
+  defp put_description(built, input) do
+    case metadata(input) do
+      empty when map_size(empty) == 0 -> built
+      metadata -> Map.put(built, :metadata, metadata)
+    end
   end
 
   @spec default(type :: String.t(), raw :: term()) :: term()
@@ -212,7 +222,7 @@ defmodule Domovoy.Composer.CoreBridge do
     end)
   end
 
-  # Core doesn't validate metadata, so only a valid description reaches it.
+  # A document may hold any metadata, so only a valid description reaches Core.
   @spec metadata(item :: map()) :: %{optional(String.t()) => String.t()}
   defp metadata(item) do
     case Document.description(item) do

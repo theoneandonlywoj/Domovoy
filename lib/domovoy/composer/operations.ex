@@ -249,8 +249,10 @@ defmodule Domovoy.Composer.Operations do
     with :ok <- check_name(name),
          {:ok, input} <- normalize_input(attrs),
          :ok <- check_free_input_name(document, name, input["type"]) do
-      {:ok, put_in(document, ["inputs", name], keep_metadata(document["inputs"][name], input)),
-       :definition}
+      current = document["inputs"][name]
+      kept = current |> keep_metadata(input) |> keep_absent_required(current)
+
+      {:ok, put_in(document, ["inputs", name], kept), :definition}
     end
   end
 
@@ -476,6 +478,15 @@ defmodule Domovoy.Composer.Operations do
   @spec keep_metadata(current :: map() | nil, input :: map()) :: map()
   defp keep_metadata(%{"metadata" => metadata}, input), do: Map.put(input, "metadata", metadata)
   defp keep_metadata(_current, input), do: input
+
+  # A saved input may leave out `required`, which means false. So saving false over
+  # it changes nothing, and writing the key would make an edit out of no change.
+  @spec keep_absent_required(input :: map(), current :: map() | nil) :: map()
+  defp keep_absent_required(%{"required" => false} = input, current)
+       when is_map(current) and not is_map_key(current, "required"),
+       do: Map.delete(input, "required")
+
+  defp keep_absent_required(input, _current), do: input
 
   # A description says what the runner does, so another runner makes it stale.
   @spec drop_stale_metadata(

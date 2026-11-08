@@ -618,6 +618,92 @@ defmodule Domovoy.Composer.OperationsTest do
       )
     end
 
+    test "a rail save keeps stored metadata, malformed included" do
+      rail_save = {:put_input, "floor", %{"type" => @any, "required" => false}}
+
+      for metadata <- [%{"description" => "Text."}, 1] do
+        document = put_in(described_input(), ["inputs", "floor", "metadata"], metadata)
+
+        assert {:ok, updated, :definition} = Operations.edit(document, rail_save)
+        assert updated["inputs"]["floor"]["type"] == @any
+        assert updated["inputs"]["floor"]["metadata"] == metadata
+      end
+    end
+
+    test "a rail save changing nothing is no edit" do
+      document = described_input()
+      unchanged = {:put_input, "floor", %{"type" => @string, "required" => false}}
+
+      assert {:ok, ^document, :none} = Operations.edit(document, unchanged)
+    end
+
+    test "a rail save over an input with no required key changes nothing unless it is true" do
+      document =
+        update_in(described_input(), ["inputs", "floor"], &Map.delete(&1, "required"))
+
+      unchanged = {:put_input, "floor", %{"type" => @string, "required" => false}}
+      assert {:ok, ^document, :none} = Operations.edit(document, unchanged)
+
+      required = {:put_input, "floor", %{"type" => @string, "required" => true}}
+      assert {:ok, updated, :definition} = Operations.edit(document, required)
+      assert updated["inputs"]["floor"]["required"] == true
+      assert updated["inputs"]["floor"]["metadata"] == %{"description" => "Text."}
+    end
+
+    test "a real edit over an input with no required key keeps the key absent" do
+      document =
+        update_in(described_input(), ["inputs", "floor"], &Map.delete(&1, "required"))
+
+      for {attrs, changed} <- [
+            {%{"type" => @any, "required" => false}, %{"type" => @any}},
+            {%{"type" => @string, "required" => false, "default" => "x"},
+             %{"type" => @string, "default" => "x"}}
+          ] do
+        assert {:ok, updated, :definition} =
+                 Operations.edit(document, {:put_input, "floor", attrs})
+
+        assert updated["inputs"]["floor"] ==
+                 Map.put(changed, "metadata", %{"description" => "Text."})
+      end
+    end
+
+    test "a new input still gets its required key" do
+      new_input = {:put_input, "fresh", %{"type" => @string}}
+
+      assert {:ok, updated, :definition} = Operations.edit(described_input(), new_input)
+      assert updated["inputs"]["fresh"] == %{"type" => @string, "required" => false}
+    end
+
+    test "a rail save with a default keeps metadata, and repeating it is no edit" do
+      rail_save =
+        {:put_input, "floor", %{"type" => @string, "required" => false, "default" => "main"}}
+
+      for metadata <- [%{"description" => "Text."}, 1] do
+        document = put_in(described_input(), ["inputs", "floor", "metadata"], metadata)
+
+        assert {:ok, updated, :definition} = Operations.edit(document, rail_save)
+        assert updated["inputs"]["floor"]["default"] == "main"
+        assert updated["inputs"]["floor"]["metadata"] == metadata
+        assert {:ok, ^updated, :none} = Operations.edit(updated, rail_save)
+      end
+    end
+
+    test "on an input, refuses a blank and an unsafe text" do
+      document = described_input()
+
+      refused(document, {:set_description, {:input, "floor"}, "   "}, :invalid_params)
+      refused(document, {:set_description, {:input, "floor"}, "a\0b"}, :invalid_text)
+    end
+
+    test "on an input, keeps the other metadata" do
+      document = put_in(described_input(), ["inputs", "floor", "metadata"], %{"other" => 1})
+
+      assert {:ok, updated, :definition} =
+               Operations.edit(document, {:set_description, {:input, "floor"}, "text"})
+
+      assert updated["inputs"]["floor"]["metadata"] == %{"description" => "text", "other" => 1}
+    end
+
     test "rename_node keeps it" do
       document = edit_all(scenario_a(), [described_resolve()])
 
@@ -657,7 +743,7 @@ defmodule Domovoy.Composer.OperationsTest do
   end
 
   describe "evidence and outputs" do
-    @estimate %{"stage" => "estimate_price", "node" => "estimate"}
+    @estimate %{"stage" => "estimate_price", "node" => "join_price_terms"}
     @area %{"stage" => "estimate_price", "node" => "area_model"}
 
     # The review seed with `area_model` and `estimate` as review's evidence and outputs.
@@ -701,7 +787,7 @@ defmodule Domovoy.Composer.OperationsTest do
 
       refused(
         document,
-        {:put_outputs, [%{"stage" => "nope", "node" => "estimate"}]},
+        {:put_outputs, [%{"stage" => "nope", "node" => "join_price_terms"}]},
         :unknown_stage
       )
 
@@ -733,7 +819,9 @@ defmodule Domovoy.Composer.OperationsTest do
     end
 
     test "follow a renamed node" do
-      document = edit_all(with_refs(), [{:rename_node, "estimate_price", "estimate", "price"}])
+      document =
+        edit_all(with_refs(), [{:rename_node, "estimate_price", "join_price_terms", "price"}])
+
       price = %{@estimate | "node" => "price"}
 
       assert Document.evidence(document["vertices"]["review"]) == [@area, price]
@@ -742,7 +830,7 @@ defmodule Domovoy.Composer.OperationsTest do
     end
 
     test "drop a removed node, and the draft still validates" do
-      document = edit_all(with_refs(), [{:remove_node, "estimate_price", "estimate"}])
+      document = edit_all(with_refs(), [{:remove_node, "estimate_price", "join_price_terms"}])
 
       assert Document.evidence(document["vertices"]["review"]) == [@area]
       assert Document.outputs(document) == []
@@ -1466,6 +1554,13 @@ defmodule Domovoy.Composer.OperationsTest do
 
     test "a second identical description returns :none with no diff" do
       op = {:set_description, {:vertex, "prepare"}, "Text."}
+
+      assert {:ok, described, :definition} = Operations.edit(scenario_a(), op)
+      assert {:ok, ^described, :none} = Operations.edit(described, op)
+    end
+
+    test "a second identical input description returns :none with no diff" do
+      op = {:set_description, {:input, "prompt"}, "Text."}
 
       assert {:ok, described, :definition} = Operations.edit(scenario_a(), op)
       assert {:ok, ^described, :none} = Operations.edit(described, op)

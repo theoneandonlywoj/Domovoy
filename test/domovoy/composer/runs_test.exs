@@ -752,13 +752,13 @@ defmodule Domovoy.Composer.RunsTest do
       moved = edit_all(draft.document, [{:move, :workflow, "review", 900, 900}])
 
       retried =
-        edit_all(draft.document, [{:set_execution, "estimate_price", "estimate", 5, true}])
+        edit_all(draft.document, [{:set_execution, "estimate_price", "join_price_terms", 5, true}])
 
       refute Composer.run_draft_changed?(row, %{draft | document: moved})
       assert Runs.draft_changed?(row, %{draft | document: retried})
     end
 
-    test "export bytes and root don't change with a run, and inputs export no metadata" do
+    test "export bytes and root don't change with a run, and inputs export only their descriptions" do
       document = seed("Cracow house price review")
       assert {:valid, before} = Composer.validate(document)
 
@@ -768,7 +768,10 @@ defmodule Domovoy.Composer.RunsTest do
       assert later.json == before.json
       assert later.fingerprint == before.fingerprint
       assert {:ok, workflow} = CoreBridge.build(draft.document)
-      assert Enum.all?(workflow.inputs, fn {_name, input} -> not is_map_key(input, :metadata) end)
+
+      assert Enum.all?(workflow.inputs, fn {_name, input} ->
+               Map.keys(input.metadata) == ["description"]
+             end)
     end
 
     test "an effectful hold runner can be used, for the phases that need one" do
