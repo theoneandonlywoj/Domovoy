@@ -100,12 +100,12 @@ defmodule DomovoyWeb.ComposerRunGenerationsLiveTest do
 
   test "the inspector's generation leaves the graph at latest", %{conn: conn} do
     run = revised_run()
-    view = open_page(conn, stage_path(run, node: "estimate", gen: 0))
+    view = open_page(conn, stage_path(run, node: "join_price_terms", gen: 0))
 
     assert has_element?(
              view,
              "#run-scope-label",
-             "Showing estimate from generation 0; graph shows latest"
+             "Showing join_price_terms from generation 0; graph shows latest"
            )
 
     assert has_element?(view, "#run-generation-0[aria-pressed='true']")
@@ -164,16 +164,18 @@ defmodule DomovoyWeb.ComposerRunGenerationsLiveTest do
 
   test "a refresh keeps node, gen and scope", %{conn: conn} do
     run = revised_run()
-    view = open_page(conn, stage_path(run, node: "estimate", gen: 1, scope: 1))
+    view = open_page(conn, stage_path(run, node: "join_price_terms", gen: 1, scope: 1))
 
-    assert {%{generation: {"estimate", 1}, scope: 1}, "estimate"} = run_assign(view)
+    assert {%{generation: {"join_price_terms", 1}, scope: 1}, "join_price_terms"} =
+             run_assign(view)
+
     assert has_element?(view, "#run-generation-1[aria-pressed='true']")
     assert has_element?(view, "#generation-scope-1[aria-pressed='true']")
 
     assert has_element?(
              view,
              "#run-scope-label",
-             "Showing estimate from generation 1; graph shows generation 1"
+             "Showing join_price_terms from generation 1; graph shows generation 1"
            )
   end
 
@@ -181,26 +183,28 @@ defmodule DomovoyWeb.ComposerRunGenerationsLiveTest do
        %{conn: conn} do
     run = revised_run(true)
     view = open_page(conn, stage_path(run, scope: 1))
-    view |> element("#node-estimate-select") |> render_click()
+    view |> element("#node-join_price_terms-select") |> render_click()
     render_async(view, 5_000)
 
     view |> element("#run-generation-0") |> render_click()
-    assert_patch(view, stage_path(run, node: "estimate", gen: 0, scope: 1))
+    assert_patch(view, stage_path(run, node: "join_price_terms", gen: 0, scope: 1))
     assert has_element?(view, "#run-generation-0[aria-pressed='true']")
-    assert {%{generation: {"estimate", 0}, scope: 1}, "estimate"} = run_assign(view)
+
+    assert {%{generation: {"join_price_terms", 0}, scope: 1}, "join_price_terms"} =
+             run_assign(view)
   end
 
   test "a hostile gen or scope is ignored and makes no atom", %{conn: conn} do
     run = revised_run()
-    view = open_page(conn, stage_path(run, node: "estimate"))
+    view = open_page(conn, stage_path(run, node: "join_price_terms"))
 
     for value <- ["abc", "-1", "999", "1.0", " 1", "latest_#{System.unique_integer([:positive])}"] do
-      render_patch(view, stage_path(run, node: "estimate", gen: value, scope: value))
-      assert {%{generation: nil, scope: :latest}, "estimate"} = run_assign(view)
+      render_patch(view, stage_path(run, node: "join_price_terms", gen: value, scope: value))
+      assert {%{generation: nil, scope: :latest}, "join_price_terms"} = run_assign(view)
 
       render_hook(view, "set_run_scope", %{"scope" => value})
       render_hook(view, "select_run_generation", %{"generation" => value})
-      assert {%{generation: nil, scope: :latest}, "estimate"} = run_assign(view)
+      assert {%{generation: nil, scope: :latest}, "join_price_terms"} = run_assign(view)
     end
 
     for params <- [%{}, %{"scope" => 1}, %{"scope" => ["0"]}, %{"scope" => %{"a" => "0"}}] do

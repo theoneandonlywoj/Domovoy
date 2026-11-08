@@ -131,9 +131,13 @@ defmodule Domovoy.ComposerFixtures do
          "decider_options" => %{"node" => node}
        }},
       {:put_choice, "route",
-       %{"name" => "create", "description" => "Create it.", "target" => ["halt"]}},
+       %{"name" => "create_missing_worktree", "description" => "Create it.", "target" => ["halt"]}},
       {:put_choice, "route",
-       %{"name" => "existing", "description" => "Use existing.", "target" => ["halt"]}}
+       %{
+         "name" => "use_existing_worktree",
+         "description" => "Use existing.",
+         "target" => ["halt"]
+       }}
     ])
   end
 

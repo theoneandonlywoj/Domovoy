@@ -102,7 +102,7 @@ defmodule Domovoy.Composer.CoreBridgeTest do
 
   test "evidence and outputs stay out of Core, so the fingerprint is the same" do
     document = Domovoy.Examples.Definitions.cracow_review()
-    estimate = %{"stage" => "estimate_price", "node" => "estimate"}
+    estimate = %{"stage" => "estimate_price", "node" => "join_price_terms"}
 
     shown =
       edit_all(document, [

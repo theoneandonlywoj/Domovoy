@@ -313,8 +313,13 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
         render_hook(view, "select_run_generation", %{"generation" => value})
         render_hook(view, "retry_run_record", %{"generation" => value})
         render_hook(view, "retry_run_record", %{"node" => value, "generation" => "0"})
-        render_hook(view, "retry_run_record", %{"node" => "estimate", "generation" => value})
-        render_hook(view, "toggle_result", %{"stage" => value, "node" => "estimate"})
+
+        render_hook(view, "retry_run_record", %{
+          "node" => "join_price_terms",
+          "generation" => value
+        })
+
+        render_hook(view, "toggle_result", %{"stage" => value, "node" => "join_price_terms"})
         render_hook(view, "toggle_result", %{"stage" => "estimate_price", "node" => value})
         render_hook(view, "open_results", %{"surface" => value})
         render_hook(view, "set_surface", %{"surface" => value})
@@ -355,7 +360,7 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
       assert_reply(view, %{status: "rejected"})
       render_hook(view, "add_node", %{"add_node" => %{"runner" => @ask, "name" => "fresh"}})
       render_hook(view, "add_vertex", %{"vertex" => %{"name" => "extra", "kind" => "stage"}})
-      estimate = %{"estimate_price" => %{"estimate" => "true"}}
+      estimate = %{"estimate_price" => %{"join_price_terms" => "true"}}
 
       render_hook(view, "put_evidence", %{
         "evidence" => %{"decision" => "review", "refs" => estimate}

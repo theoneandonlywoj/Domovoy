@@ -90,7 +90,7 @@ defmodule Domovoy.Composer.RunViewTest do
       level = Composer.stage_view(context.document, "estimate_price")
       edges = RunView.wire_statuses(view, "estimate_price", level)
 
-      node_edges = Enum.filter(edges, &String.starts_with?(&1.from, "out:normalize"))
+      node_edges = Enum.filter(edges, &String.starts_with?(&1.from, "out:normalize_listing"))
       assert node_edges != []
       assert Enum.all?(node_edges, &(&1[:run] == "succeeded"))
 
@@ -262,9 +262,9 @@ defmodule Domovoy.Composer.RunViewTest do
       }
 
       events =
-        attempt(1, "estimate", 0, "succeeded") ++
+        attempt(1, "join_price_terms", 0, "succeeded") ++
           attempt(3, "area_model", 0, "succeeded") ++
-          attempt(5, "estimate", 1, "succeeded") ++
+          attempt(5, "join_price_terms", 1, "succeeded") ++
           attempt(7, "area_model", 1, "failed") ++ if(asked?, do: [pending], else: [])
 
       fold(document, events)
@@ -272,7 +272,8 @@ defmodule Domovoy.Composer.RunViewTest do
 
     defp evidence_document do
       refs =
-        for node <- ~w(estimate area_model normalize), do: %{"stage" => @stage, "node" => node}
+        for node <- ~w(join_price_terms area_model normalize_listing),
+            do: %{"stage" => @stage, "node" => node}
 
       edit_all(seed("Cracow house price review"), [{:put_evidence, "review", refs}])
     end
@@ -280,11 +281,11 @@ defmodule Domovoy.Composer.RunViewTest do
     test "evidence_generation/3 is the same generation, the newest earlier one, or none" do
       view = evidence_fold(evidence_document())
 
-      assert RunView.evidence_generation(view, {@stage, "estimate"}, 1) == {:same, 1}
+      assert RunView.evidence_generation(view, {@stage, "join_price_terms"}, 1) == {:same, 1}
       assert RunView.evidence_generation(view, {@stage, "area_model"}, 1) == {:from, 0}
       assert RunView.evidence_generation(view, {@stage, "area_model"}, 0) == {:same, 0}
-      assert RunView.evidence_generation(view, {@stage, "normalize"}, 1) == nil
-      assert RunView.evidence_generation(view, {"other", "estimate"}, 1) == nil
+      assert RunView.evidence_generation(view, {@stage, "normalize_listing"}, 1) == nil
+      assert RunView.evidence_generation(view, {"other", "join_price_terms"}, 1) == nil
     end
 
     test "evidence/4 reads the occurrence's generation, else Core's after a resync" do
@@ -293,8 +294,8 @@ defmodule Domovoy.Composer.RunViewTest do
 
       expected = [
         %{stage: @stage, node: "area_model", shown: {:from, 0}},
-        %{stage: @stage, node: "estimate", shown: {:same, 1}},
-        %{stage: @stage, node: "normalize", shown: nil}
+        %{stage: @stage, node: "join_price_terms", shown: {:same, 1}},
+        %{stage: @stage, node: "normalize_listing", shown: nil}
       ]
 
       assert RunView.evidence(evidence_fold(document), document, status, "review") == expected
@@ -311,7 +312,7 @@ defmodule Domovoy.Composer.RunViewTest do
 
       assert [
                %{node: "area_model", generation: 1, status: "failed", store?: true},
-               %{node: "estimate", generation: 1, status: "succeeded"}
+               %{node: "join_price_terms", generation: 1, status: "succeeded"}
              ] = RunView.results(evidence_fold(document), document)
     end
   end
@@ -337,7 +338,7 @@ defmodule Domovoy.Composer.RunViewTest do
     # left the rest unrun. Generation 2's stage has started with no attempt yet.
     defp scoped_fold do
       document = seed("Cracow house price review")
-      gen0 = ~w(normalize area_model layout_model location_model estimate)
+      gen0 = ~w(normalize_listing area_model layout_model location_model join_price_terms)
 
       events =
         [stage_fact(1, "stage_started", 0)] ++
@@ -359,7 +360,7 @@ defmodule Domovoy.Composer.RunViewTest do
             }),
             stage_fact(33, "stage_started", 1)
           ] ++
-          settled(40, "estimate", 1, "succeeded") ++
+          settled(40, "join_price_terms", 1, "succeeded") ++
           [
             fact_event(42, %{
               "type" => "node_skipped",
@@ -378,21 +379,21 @@ defmodule Domovoy.Composer.RunViewTest do
       view = scoped_fold()
 
       assert RunView.scope_statuses(view, @stage, 1) == %{
-               "estimate" => "succeeded",
+               "join_price_terms" => "succeeded",
                "area_model" => "skipped",
-               "normalize" => "not_executed",
+               "normalize_listing" => "not_executed",
                "layout_model" => "not_executed",
                "location_model" => "not_executed"
              }
 
       assert RunView.scope_statuses(view, @stage, 0) ==
                Map.new(
-                 ~w(normalize area_model layout_model location_model estimate),
+                 ~w(normalize_listing area_model layout_model location_model join_price_terms),
                  &{&1, "succeeded"}
                )
 
       # The latest view still shows generation 0's successes, which scope 1 never reports.
-      assert RunView.card_statuses(view, @stage)["normalize"] == "succeeded"
+      assert RunView.card_statuses(view, @stage)["normalize_listing"] == "succeeded"
     end
 
     test "the workflow shows each stage's worst node that ran, and each decision asked there" do
@@ -427,12 +428,20 @@ defmodule Domovoy.Composer.RunViewTest do
 
       # A stage still going reads running after a success, but not after a failure.
       succeeded =
-        Enum.reduce(settled(50, "normalize", 2, "succeeded"), view, &RunView.apply_event(&2, &1))
+        Enum.reduce(
+          settled(50, "normalize_listing", 2, "succeeded"),
+          view,
+          &RunView.apply_event(&2, &1)
+        )
 
       assert RunView.scope_statuses(succeeded, nil, 2)[@stage] == "running"
 
       failed =
-        Enum.reduce(settled(50, "normalize", 2, "failed"), view, &RunView.apply_event(&2, &1))
+        Enum.reduce(
+          settled(50, "normalize_listing", 2, "failed"),
+          view,
+          &RunView.apply_event(&2, &1)
+        )
 
       assert RunView.scope_statuses(failed, nil, 2)[@stage] == "failed"
     end
@@ -445,7 +454,7 @@ defmodule Domovoy.Composer.RunViewTest do
       assert RunView.scope_statuses(view, nil, 2)[@stage] == "running"
 
       for outcome <- ~w(interrupted cancelled) do
-        settled_view = apply_all.(settled(50, "normalize", 2, outcome), view)
+        settled_view = apply_all.(settled(50, "normalize_listing", 2, outcome), view)
         assert RunView.scope_statuses(settled_view, nil, 2)[@stage] == outcome
       end
 
@@ -454,14 +463,14 @@ defmodule Domovoy.Composer.RunViewTest do
           [
             fact_event(50, %{
               "type" => "attempt_admitted",
-              "subject" => "node:normalize",
+              "subject" => "node:normalize_listing",
               "generation" => 2,
               "ordinal" => 1
             }),
             fact_event(51, %{
               "type" => "uncertainty_recorded",
               "uncertainty" => "u1",
-              "subject" => "node:normalize",
+              "subject" => "node:normalize_listing",
               "generation" => 2,
               "ordinal" => 1
             })
@@ -473,11 +482,11 @@ defmodule Domovoy.Composer.RunViewTest do
 
       running =
         apply_all.(
-          settled(50, "normalize", 2, "succeeded") ++
+          settled(50, "normalize_listing", 2, "succeeded") ++
             [
               fact_event(52, %{
                 "type" => "attempt_admitted",
-                "subject" => "node:estimate",
+                "subject" => "node:join_price_terms",
                 "generation" => 2,
                 "ordinal" => 1
               })
@@ -495,7 +504,7 @@ defmodule Domovoy.Composer.RunViewTest do
       estimate_running =
         fact_event(60, %{
           "type" => "attempt_admitted",
-          "subject" => "node:estimate",
+          "subject" => "node:join_price_terms",
           "generation" => 2,
           "ordinal" => 1
         })
@@ -506,7 +515,9 @@ defmodule Domovoy.Composer.RunViewTest do
             {"cancelled", "cancelled"},
             {"lost", "unknown"}
           ] do
-        mixed = apply_all.(settled(50, "normalize", 2, outcome) ++ [estimate_running], view)
+        mixed =
+          apply_all.(settled(50, "normalize_listing", 2, outcome) ++ [estimate_running], view)
+
         assert RunView.scope_statuses(mixed, nil, 2)[@stage] == status
       end
 
@@ -515,14 +526,14 @@ defmodule Domovoy.Composer.RunViewTest do
           [
             fact_event(50, %{
               "type" => "attempt_admitted",
-              "subject" => "node:normalize",
+              "subject" => "node:normalize_listing",
               "generation" => 2,
               "ordinal" => 1
             }),
             fact_event(51, %{
               "type" => "uncertainty_recorded",
               "uncertainty" => "u1",
-              "subject" => "node:normalize",
+              "subject" => "node:normalize_listing",
               "generation" => 2,
               "ordinal" => 1
             }),
@@ -548,7 +559,7 @@ defmodule Domovoy.Composer.RunViewTest do
 
   describe "subject_node/1" do
     test "normalises a node subject and nothing else" do
-      assert RunView.subject_node("node:estimate") == "estimate"
+      assert RunView.subject_node("node:join_price_terms") == "join_price_terms"
       assert RunView.subject_node("decision:review@0#1") == nil
       assert RunView.subject_node("node:") == nil
       assert RunView.subject_node(nil) == nil

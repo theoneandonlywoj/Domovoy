@@ -83,8 +83,8 @@ defmodule DomovoyWeb.ComposerRunResultsLiveTest do
 
     watch(view.pid)
     render_async(view, 5_000)
-    await_folded(view, &settled?(&1, "estimate"))
-    view |> element("#node-estimate-select") |> render_click()
+    await_folded(view, &settled?(&1, "join_price_terms"))
+    view |> element("#node-join_price_terms-select") |> render_click()
     render_async(view, 5_000)
 
     assert has_element?(view, "#run-selected-status", "Done")
@@ -93,7 +93,7 @@ defmodule DomovoyWeb.ComposerRunResultsLiveTest do
     assert has_element?(view, "#run-attempt-1", "took")
     assert has_element?(view, "#run-node-runner", "Estimate")
     assert has_element?(view, "#run-node-version")
-    assert has_element?(view, "#run-node-source-features", "from normalize")
+    assert has_element?(view, "#run-node-source-features", "from normalize_listing")
     assert has_element?(view, "#run-node-source-base", "from area_model")
     refute has_element?(view, "#run-generations")
   end
@@ -267,48 +267,57 @@ defmodule DomovoyWeb.ComposerRunResultsLiveTest do
 
     watch(view.pid)
     render_async(view, 5_000)
-    await_folded(view, &settled?(&1, "estimate"))
+    await_folded(view, &settled?(&1, "join_price_terms"))
 
     # The second selection lands before the first read can, which is then dropped.
-    view |> element("#node-estimate-select") |> render_click()
-    view |> element("#node-normalize-select") |> render_click()
+    view |> element("#node-join_price_terms-select") |> render_click()
+    view |> element("#node-normalize_listing-select") |> render_click()
     render_async(view, 5_000)
 
     %{socket: %{assigns: %{run: page}}} = :sys.get_state(view.pid)
-    assert [{_id, "normalize", 0, _seq}] = Map.keys(page.reads)
-    assert has_element?(view, "#run-selected-name", "normalize")
+    assert [{_id, "normalize_listing", 0, _seq}] = Map.keys(page.reads)
+    assert has_element?(view, "#run-selected-name", "normalize_listing")
     assert has_element?(view, "#run-output")
   end
 
   test "Results lists the declared outputs first, then the rest by stage, each read on expand",
        %{conn: conn} do
-    estimate = %{"stage" => "estimate_price", "node" => "estimate"}
+    estimate = %{"stage" => "estimate_price", "node" => "join_price_terms"}
     run = review_run(edit_all(Definitions.cracow_review(), [{:put_outputs, [estimate]}]))
 
     {:ok, view, _html} = live(conn, ~p"/composer/#{run.draft.id}?run=#{run.run_id}")
     watch(view.pid)
     render_async(view, 5_000)
-    await_folded(view, &settled?(&1, "estimate"))
+    await_folded(view, &settled?(&1, "join_price_terms"))
     view |> element("#open-results") |> render_click()
 
     assert has_element?(view, "#results-panel:not([hidden])")
-    assert has_element?(view, "#results-outputs #result-row-estimate_price-estimate")
+    assert has_element?(view, "#results-outputs #result-row-estimate_price-join_price_terms")
 
     assert has_element?(
              view,
-             "#results-stage-estimate_price #result-row-estimate_price-normalize"
+             "#results-stage-estimate_price #result-row-estimate_price-normalize_listing"
            )
 
-    refute has_element?(view, "#results-stage-estimate_price #result-row-estimate_price-estimate")
-    refute has_element?(view, "#result-row-estimate_price-normalize-output")
+    refute has_element?(
+             view,
+             "#results-stage-estimate_price #result-row-estimate_price-join_price_terms"
+           )
 
-    view |> element("#result-row-estimate_price-normalize-toggle") |> render_click()
+    refute has_element?(view, "#result-row-estimate_price-normalize_listing-output")
+
+    view |> element("#result-row-estimate_price-normalize_listing-toggle") |> render_click()
     render_async(view, 5_000)
-    assert has_element?(view, "#result-row-estimate_price-normalize-toggle[aria-expanded='true']")
-    assert has_element?(view, "#result-row-estimate_price-normalize-output")
 
-    view |> element("#result-row-estimate_price-normalize-toggle") |> render_click()
-    refute has_element?(view, "#result-row-estimate_price-normalize-output")
+    assert has_element?(
+             view,
+             "#result-row-estimate_price-normalize_listing-toggle[aria-expanded='true']"
+           )
+
+    assert has_element?(view, "#result-row-estimate_price-normalize_listing-output")
+
+    view |> element("#result-row-estimate_price-normalize_listing-toggle") |> render_click()
+    refute has_element?(view, "#result-row-estimate_price-normalize_listing-output")
   end
 
   test "the Results surface opens from its switcher button, and with a browser's value",

@@ -1,6 +1,7 @@
 defmodule Domovoy.Examples.Worktree.WorktreeRouteDecider do
   @moduledoc """
-  Picks `create` for a missing worktree and `existing` for one on the wanted branch.
+  Picks `create_missing_worktree` for a missing worktree and `use_existing_worktree` for
+  one on the wanted branch.
   It reads the worktree from the node that the `:node` option names.
   Ported from Core's `ensure_worktree` notebook.
   """
@@ -23,7 +24,7 @@ defmodule Domovoy.Examples.Worktree.WorktreeRouteDecider do
 
   @spec route(worktree :: map(), wanted :: term()) ::
           {:ok, String.t()} | {:error, :branch_mismatch}
-  defp route(%{exists?: false}, _wanted), do: {:ok, "create"}
-  defp route(%{branch: wanted}, wanted), do: {:ok, "existing"}
+  defp route(%{exists?: false}, _wanted), do: {:ok, "create_missing_worktree"}
+  defp route(%{branch: wanted}, wanted), do: {:ok, "use_existing_worktree"}
   defp route(_worktree, _wanted), do: {:error, :branch_mismatch}
 end

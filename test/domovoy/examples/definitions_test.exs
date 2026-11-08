@@ -69,7 +69,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
     worktree_name = {"derive_worktree_name", Type.String}
     repository = {"repository_path", Type.Directory}
 
-    worktree_name_node =
+    derive_worktree_name_node =
       Node.new(%{
         name: "derive_worktree_name",
         runner: WorktreeName,
@@ -79,7 +79,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
 
     resolve_bind = %{worktree_name: worktree_name, working_directory: repository}
 
-    resolve_node =
+    look_up_worktree_node =
       Node.new(%{
         name: "look_up_worktree",
         runner: WorktreeResolve,
@@ -100,7 +100,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
         }
       })
 
-    result_node =
+    describe_synced_worktree_node =
       Node.new(%{
         name: "describe_synced_worktree",
         runner: WorktreeResolve,
@@ -126,9 +126,9 @@ defmodule Domovoy.Examples.DefinitionsTest do
         args: %{folder: {"deps", Type.String}}
       })
 
-    mise_node = Node.new(%{name: "detect_mise", runner: Detect, type: Executable})
+    detect_mise_node = Node.new(%{name: "detect_mise", runner: Detect, type: Executable})
 
-    trust_node =
+    trust_mise_config_node =
       Node.new(%{
         name: "trust_mise_config",
         runner: Trust,
@@ -139,7 +139,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
         }
       })
 
-    mise_current_node =
+    read_mise_versions_node =
       Node.new(%{
         name: "read_mise_versions",
         runner: Worktree.MiseCurrent,
@@ -151,7 +151,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
       "inspect_worktree" =>
         Stage.new(%{
           name: "inspect_worktree",
-          graph: Graph.new([worktree_name_node, resolve_node]),
+          graph: Graph.new([derive_worktree_name_node, look_up_worktree_node]),
           next: "choose_create_or_use_worktree"
         }),
       "choose_create_or_use_worktree" =>
@@ -160,12 +160,12 @@ defmodule Domovoy.Examples.DefinitionsTest do
           prompt: "Create or use existing?",
           choices: [
             Choice.new(%{
-              name: "create",
+              name: "create_missing_worktree",
               description: "Create it.",
               target: {:run, "create_missing_worktree"}
             }),
             Choice.new(%{
-              name: "existing",
+              name: "use_existing_worktree",
               description: "Use existing.",
               target: {:run, "sync_worktree_folders"}
             })
@@ -188,7 +188,13 @@ defmodule Domovoy.Examples.DefinitionsTest do
       "finish_worktree_setup" =>
         Stage.new(%{
           name: "finish_worktree_setup",
-          graph: Graph.new([result_node, mise_node, trust_node, mise_current_node])
+          graph:
+            Graph.new([
+              describe_synced_worktree_node,
+              detect_mise_node,
+              trust_mise_config_node,
+              read_mise_versions_node
+            ])
         })
     }
   end
@@ -197,7 +203,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
     graph =
       Graph.new([
         Node.new(%{
-          name: "normalize",
+          name: "normalize_listing",
           runner: Cracow.Normalize,
           type: Cracow.Features,
           validators: [Cracow.RoomLayout, Cracow.AreaPolicy],
@@ -215,26 +221,26 @@ defmodule Domovoy.Examples.DefinitionsTest do
           name: "area_model",
           runner: Cracow.AreaModel,
           type: Cracow.Float,
-          bind: %{features: {"normalize", Cracow.Features}}
+          bind: %{features: {"normalize_listing", Cracow.Features}}
         }),
         Node.new(%{
           name: "layout_model",
           runner: Cracow.LayoutModel,
           type: Cracow.Float,
-          bind: %{features: {"normalize", Cracow.Features}}
+          bind: %{features: {"normalize_listing", Cracow.Features}}
         }),
         Node.new(%{
           name: "location_model",
           runner: Cracow.LocationModel,
           type: Cracow.Float,
-          bind: %{features: {"normalize", Cracow.Features}}
+          bind: %{features: {"normalize_listing", Cracow.Features}}
         }),
         Node.new(%{
-          name: "estimate",
+          name: "join_price_terms",
           runner: Cracow.Estimate,
           type: Type.Map,
           bind: %{
-            features: {"normalize", Cracow.Features},
+            features: {"normalize_listing", Cracow.Features},
             base: {"area_model", Cracow.Float},
             layout: {"layout_model", Cracow.Float},
             location: {"location_model", Cracow.Float}
@@ -246,7 +252,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
   end
 
   describe "the seeded definitions" do
-    test "create_worktree is valid and equals its notebook" do
+    test "create_worktree is valid and holds the vertices its notebook builds" do
       workflow = valid_workflow(strip_descriptions(Definitions.create_worktree()))
 
       assert workflow.name == "create_worktree"
@@ -260,7 +266,7 @@ defmodule Domovoy.Examples.DefinitionsTest do
              }
     end
 
-    test "cracow_prices is valid and equals its notebook" do
+    test "cracow_prices is valid and holds the vertices its notebook builds" do
       workflow = valid_workflow(strip_descriptions(Definitions.cracow_house_price()))
 
       assert workflow.name == "cracow_prices"
@@ -329,7 +335,47 @@ defmodule Domovoy.Examples.DefinitionsTest do
       end
     end
 
-    test "export on each node and vertex, and leave inputs and workflow metadata alone" do
+    @input_descriptions %{
+      "repository_path" =>
+        "The Git repository the worktree belongs to. Looking up and creating the worktree " <>
+          "both run from this directory.",
+      "branch_name" =>
+        "The branch the worktree should be on. Its last path segment becomes the worktree " <>
+          "name, and an existing worktree must already be on this branch.",
+      "base_branch" =>
+        "The ref a new branch starts from, main unless set. It is used only when the " <>
+          "worktree is created.",
+      "rooms" => "Number of rooms, at least 1 and no fewer than the bathrooms.",
+      "bathrooms" => "Number of bathrooms, at least 1 and no more than the rooms.",
+      "area" => "Floor area in square metres, from 15 to 300.",
+      "district" => "The Kraków district, which must be one of the nine the price model knows.",
+      "floor" =>
+        "The floor the flat is on, 0 or higher. The ground floor lowers the price, and " <>
+          "floor 5 and above raises it.",
+      "balcony" => "Whether the flat has a balcony, which raises the price.",
+      "year_built" =>
+        "The year the building was built. Buildings from before 1960 or from 2015 on " <>
+          "raise the price, and those from 1960 to 1989 lower it."
+    }
+
+    test "reach the exported JSON on every input of each seeded workflow" do
+      exported =
+        for %{document: document} <- Definitions.all(),
+            {name, input} <- exported_inputs(document) do
+          assert input["metadata"] == %{"description" => @input_descriptions[name]}, name
+          name
+        end
+
+      assert exported |> Enum.uniq() |> Enum.sort() == Enum.sort(Map.keys(@input_descriptions))
+      assert length(exported) == 17
+    end
+
+    defp exported_inputs(document) do
+      assert {:valid, %{json: json}} = Composer.validate(document)
+      Jason.decode!(json)["inputs"]
+    end
+
+    test "export on each node, vertex and input, and leave workflow metadata alone" do
       for %{document: document} <- Definitions.all() do
         workflow = valid_workflow(document)
 
@@ -346,9 +392,9 @@ defmodule Domovoy.Examples.DefinitionsTest do
 
         assert Map.keys(workflow.metadata) == ["domovoy_editor"]
 
-        for {_name, input} <- workflow.inputs do
-          refute Map.has_key?(input, :metadata)
-          refute Map.has_key?(input, "metadata")
+        for {name, input} <- document["inputs"] do
+          assert {:ok, text} = Document.description(input)
+          assert workflow.inputs[name][:metadata] == %{"description" => text}
         end
       end
     end
