@@ -181,7 +181,7 @@ defmodule Domovoy.Composer.RunsPostgresTest do
     assert %{committed_phase: "waiting"} = await_phase(handle, "waiting")
 
     assert {:ok, %Record{status: :ok, result: %Value{value: estimate}}} =
-             CoreRuns.get(handle, "estimate", 0)
+             CoreRuns.get(handle, "join_price_terms", 0)
 
     restart_runtime()
 
@@ -194,7 +194,7 @@ defmodule Domovoy.Composer.RunsPostgresTest do
     assert [%{decision: "review"}] = awaiting
 
     assert {:ok, %Record{result: %Value{value: ^estimate}}} =
-             CoreRuns.get(reopened, "estimate", 0)
+             CoreRuns.get(reopened, "join_price_terms", 0)
   end
 
   test "a sentinel in a run input stays out of the logs through success" do
@@ -298,7 +298,7 @@ defmodule Domovoy.Composer.RunsPostgresTest do
 
       {:ok, _receipt} = CoreRuns.command(handle, :resume, command_id: "resume-test")
       assert %{committed_phase: "waiting", generation: 1} = await_fact(handle, asked(1))
-      assert {:ok, %Record{status: :ok}} = CoreRuns.get(handle, "estimate", 1)
+      assert {:ok, %Record{status: :ok}} = CoreRuns.get(handle, "join_price_terms", 1)
     end
 
     test "a sentinel in a decision input stays out of the logs, answered and refused" do
@@ -320,7 +320,7 @@ defmodule Domovoy.Composer.RunsPostgresTest do
           assert {:ok, %Record{result: %Value{value: @sentinel}}} =
                    CoreRuns.get(handle, "district", 1)
 
-          assert {:ok, %Record{status: :error}} = CoreRuns.get(handle, "normalize", 1)
+          assert {:ok, %Record{status: :error}} = CoreRuns.get(handle, "normalize_listing", 1)
         end)
 
       refute log =~ @sentinel

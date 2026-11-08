@@ -88,8 +88,8 @@ defmodule DomovoyWeb.ComposerLauncherLiveTest do
 
     assert has_element?(
              view,
-             "#start-effect-estimate_price-normalize",
-             "estimate_price / normalize:"
+             "#start-effect-estimate_price-normalize_listing",
+             "estimate_price / normalize_listing:"
            )
 
     assert has_element?(view, "#start-effects-title", "may change things outside Composer")

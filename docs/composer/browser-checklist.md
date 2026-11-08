@@ -786,3 +786,19 @@ Limits: the walk was headless, so motion was not watched, and no physical mouse 
 reader was tried. The issue was reached by opening Tools and pressing its row, the way a
 person does; the row's `select_node` push is what switches the surface. The one Not
 walked row is the scoped stage status, for the reason in its row.
+
+## Seed names — 2026-11-08
+
+No browser check was run for this note. The seeds now use the names of Core's renamed notebooks,
+so earlier results above are historical: they name what was walked then. `create_worktree`'s
+stages `inspect`, `create`, `sync` and `finalize` are now `inspect_worktree`,
+`create_missing_worktree`, `sync_worktree_folders` and `finish_worktree_setup`, and decision
+`route` is `choose_create_or_use_worktree`, whose choices `create` and `existing` are
+`create_missing_worktree` and `use_existing_worktree`. Its nodes `worktree_name`, `resolve`,
+`result`, `mise`, `trust` and `mise_current` are `derive_worktree_name`, `look_up_worktree`,
+`describe_synced_worktree`, `detect_mise`, `trust_mise_config` and `read_mise_versions`.
+`cracow_prices`' and `cracow_review`'s nodes `normalize` and `estimate` are `normalize_listing`
+and `join_price_terms`.
+
+Seeds keep a draft that already exists, so a draft saved before this keeps the old names, and
+its decider returns choice names the decision no longer has. Delete that draft and seed again.

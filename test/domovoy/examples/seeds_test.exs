@@ -98,6 +98,26 @@ defmodule Domovoy.Examples.SeedsTest do
     assert Jason.encode!(draft("create_worktree").document) == Jason.encode!(kept.document)
   end
 
+  test "a saved seed with no input metadata stays kept, and exports none" do
+    run_seeds()
+
+    stripped =
+      Map.update!(draft("create_worktree").document, "inputs", fn inputs ->
+        Map.new(inputs, fn {name, input} -> {name, Map.delete(input, "metadata")} end)
+      end)
+
+    {:ok, kept} = Composer.save_document(draft("create_worktree"), stripped)
+
+    assert {"create_worktree", :kept} in Seeds.run()
+    assert {:ok, ^kept} = Composer.get_draft(kept.id)
+
+    assert {:valid, %{json: json}} = Composer.validate(kept.document)
+
+    for {_name, input} <- Jason.decode!(json)["inputs"] do
+      refute is_map_key(input, "metadata")
+    end
+  end
+
   describe "a definition failing validation" do
     setup do
       on_exit(fn -> Application.delete_env(:domovoy, :composer_export_steps) end)

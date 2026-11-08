@@ -85,7 +85,7 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
 
   defp open_estimate(view, run) do
     render_patch(view, ~p"/composer/#{run.draft.id}/stages/estimate_price?run=#{run.run_id}")
-    view |> element("#node-estimate-select") |> render_click()
+    view |> element("#node-join_price_terms-select") |> render_click()
     render_async(view, 5_000)
     view
   end
@@ -275,7 +275,7 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
     defp evidence_review do
       refs = [
         %{"stage" => "intake", "node" => "note"},
-        %{"stage" => "estimate_price", "node" => "estimate"}
+        %{"stage" => "estimate_price", "node" => "join_price_terms"}
       ]
 
       edit_all(seed("Cracow house price review"), [
@@ -295,7 +295,7 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
       view = open_review(conn, run)
       render_async(view, 5_000)
 
-      assert has_element?(view, "#decision-evidence-estimate-generation", "Generation 0")
+      assert has_element?(view, "#decision-evidence-join_price_terms-generation", "Generation 0")
       assert has_element?(view, "#decision-evidence-note-generation", "Generation 0")
 
       view |> form("#decide-revise", inputs: %{district: "Kazimierz"}) |> render_submit()
@@ -304,23 +304,31 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
       render_async(view, 5_000)
 
       assert has_element?(view, "#decision-form-review #decision-evidence")
-      assert has_element?(view, "#decision-evidence-estimate-generation", "Generation 1")
-      assert has_element?(view, "#decision-evidence-estimate #decision-evidence-estimate-output")
+      assert has_element?(view, "#decision-evidence-join_price_terms-generation", "Generation 1")
+
+      assert has_element?(
+               view,
+               "#decision-evidence-join_price_terms #decision-evidence-join_price_terms-output"
+             )
+
       assert has_element?(view, "#decision-evidence-note-generation", "from generation 0")
       assert has_element?(view, "#decision-evidence-note-output", "intake note")
 
       # The estimate shown is generation 1's, which the revise changed.
-      seq = settled_seq(view, "estimate", 1)
-      assert %{output: %{text: revised}} = Composer.run_record(run.handle, "estimate", 1, seq)
+      seq = settled_seq(view, "join_price_terms", 1)
+
+      assert %{output: %{text: revised}} =
+               Composer.run_record(run.handle, "join_price_terms", 1, seq)
+
       shown = revised |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-      assert view |> element("#decision-evidence-estimate-output") |> render() =~ shown
+      assert view |> element("#decision-evidence-join_price_terms-output") |> render() =~ shown
     end
 
     test "is read again after a resync brings the decision back", %{conn: conn} do
       run = start_review(evidence_review())
       view = open_review(conn, run)
       render_async(view, 5_000)
-      assert has_element?(view, "#decision-evidence-estimate-output")
+      assert has_element?(view, "#decision-evidence-join_price_terms-output")
 
       # A status from before the decision was pending, so nothing of its evidence is held.
       :sys.replace_state(view.pid, fn state ->
@@ -338,7 +346,7 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
       %{socket: %{assigns: %{run: %{reads: reads}}}} = :sys.get_state(view.pid)
       assert [_estimate, _note] = Enum.filter(Map.values(reads), &(&1.state == :stored))
       assert has_element?(view, "#run-fold-stale")
-      assert has_element?(view, "#decision-evidence-estimate-output")
+      assert has_element?(view, "#decision-evidence-join_price_terms-output")
       assert has_element?(view, "#decision-evidence-note-output", "intake note")
     end
   end
@@ -376,7 +384,7 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
     await_delivered(&(&1["type"] == "decision_accepted"))
 
     assert has_element?(view, "#run-decision-automatic")
-    assert has_element?(view, "#run-occurrence-0-choice", "create")
+    assert has_element?(view, "#run-occurrence-0-choice", "create_missing_worktree")
     refute has_element?(view, "#decision-form-route")
     refute has_element?(view, "form[phx-submit='decide']")
   end

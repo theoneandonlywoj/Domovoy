@@ -179,16 +179,18 @@ defmodule DomovoyWeb.ComposerRetainedRunLiveTest do
     render_async(view, 5_000)
     await_folded(view, &(map_size(&1.occurrences) == 2))
 
-    view |> element("#node-estimate-select") |> render_click()
+    view |> element("#node-join_price_terms-select") |> render_click()
     render_async(view, 5_000)
 
     view |> element("#run-generation-0") |> render_click()
-    assert_patch(view, path.(node: "estimate", gen: 0))
+    assert_patch(view, path.(node: "join_price_terms", gen: 0))
 
     view |> element("#generation-scope-1") |> render_click()
-    assert_patch(view, path.(node: "estimate", gen: 0, scope: 1))
+    assert_patch(view, path.(node: "join_price_terms", gen: 0, scope: 1))
 
-    assert {%{generation: {"estimate", 0}, scope: 1}, "estimate"} = run_assign(view)
+    assert {%{generation: {"join_price_terms", 0}, scope: 1}, "join_price_terms"} =
+             run_assign(view)
+
     assert has_element?(view, "#run-generation-0[aria-pressed='true']")
     assert has_element?(view, "#generation-scope-1[aria-pressed='true']")
 

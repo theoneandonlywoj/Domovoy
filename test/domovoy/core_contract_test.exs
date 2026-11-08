@@ -47,6 +47,30 @@ defmodule Domovoy.CoreContractTest do
     end
   end
 
+  describe "input metadata" do
+    @description %{"description" => "The worktree to resolve."}
+
+    test "round-trips outside the fingerprint" do
+      plain = input_workflow(%{type: Type.String, required: true})
+      described = input_workflow(%{type: Type.String, required: true, metadata: @description})
+
+      assert described.inputs["worktree_name"][:metadata] == @description
+
+      assert {:ok, json} = Workflow.to_json(described)
+      assert Jason.decode!(json)["inputs"]["worktree_name"]["metadata"] == @description
+      assert {:ok, decoded} = Workflow.from_json(json)
+
+      assert decoded == described
+      assert Workflow.to_json(decoded) == {:ok, json}
+      assert Definition.fingerprint(described).root == Definition.fingerprint(plain).root
+    end
+
+    test "refuses a non-map" do
+      assert input_workflow(%{type: Type.String, required: true, metadata: 3}) ==
+               Error.invalid_workflow_input("worktree_name", :invalid_metadata)
+    end
+  end
+
   describe "runner reflection" do
     test "gives the fixed output types scenario A uses" do
       assert WorktreeResolve.__domovoy_core__(:output) == Worktree
@@ -166,6 +190,15 @@ defmodule Domovoy.CoreContractTest do
             ]
           })
       }
+    })
+  end
+
+  defp input_workflow(input) do
+    Workflow.new(%{
+      name: "contract",
+      start: "a",
+      vertices: %{"a" => stage("a", [resolve()])},
+      inputs: %{"worktree_name" => input}
     })
   end
 

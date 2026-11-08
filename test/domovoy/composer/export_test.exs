@@ -10,6 +10,7 @@ defmodule Domovoy.Composer.ExportTest do
   alias Domovoy.Composer.Document
   alias Domovoy.Composer.Export
   alias Domovoy.Composer.Issue
+  alias Domovoy.Examples.Definitions
   alias DomovoyCore.Definition
   alias DomovoyCore.Workflow
 
@@ -41,6 +42,34 @@ defmodule Domovoy.Composer.ExportTest do
       assert decoded.metadata["domovoy_editor"] == document["layout"]
       assert Definition.fingerprint(decoded).root == fingerprint
       assert to_json(decoded) == {:ok, json}
+    end
+  end
+
+  describe "the seeds" do
+    test "read back with an equal struct, root and bytes" do
+      for %{document: document} <- Definitions.all() do
+        %{workflow: workflow, json: json, fingerprint: fingerprint} = valid!(document)
+
+        assert {:ok, decoded} = Workflow.from_json(json)
+        assert decoded == workflow
+        assert Definition.fingerprint(decoded).root == fingerprint
+        assert to_json(decoded) == {:ok, json}
+      end
+    end
+
+    test "keep their root and change their bytes with input metadata" do
+      for %{document: document} <- Definitions.all() do
+        stripped =
+          Map.update!(document, "inputs", fn inputs ->
+            Map.new(inputs, fn {name, input} -> {name, Map.delete(input, "metadata")} end)
+          end)
+
+        described = valid!(document)
+        plain = valid!(stripped)
+
+        assert described.fingerprint == plain.fingerprint
+        refute described.json == plain.json
+      end
     end
   end
 
@@ -107,7 +136,7 @@ defmodule Domovoy.Composer.ExportTest do
       ]
     end
 
-    test "export on nodes, stages and decisions and keep the root; inputs don't change" do
+    test "export on nodes, stages, decisions and inputs and keep the root" do
       document = scenario_a()
       plain = valid!(document)
 
@@ -129,8 +158,64 @@ defmodule Domovoy.Composer.ExportTest do
                %{"description" => "Reviews."}
              ]
 
-      assert workflow.inputs == plain.workflow.inputs
+      assert workflow.inputs["prompt"][:metadata] == %{"description" => "The prompt."}
+
+      # Nothing but the described input's metadata differs.
+      assert update_in(workflow.inputs["prompt"], &Map.delete(&1, :metadata)).inputs ==
+               plain.workflow.inputs
+
       assert workflow.metadata == %{"domovoy_editor" => document["layout"]}
+    end
+
+    test "only an input's description is exported" do
+      document =
+        put_in(scenario_a(), ["inputs", "prompt", "metadata"], %{
+          "description" => "The prompt.",
+          "other" => 1
+        })
+
+      assert exported_input(document)["metadata"] == %{"description" => "The prompt."}
+    end
+
+    test "an input's absent or malformed metadata exports no key" do
+      document = scenario_a()
+
+      malformed = [
+        %{},
+        %{"other" => 1},
+        nil,
+        1,
+        "text",
+        %{"description" => 1},
+        %{"description" => "   "}
+      ]
+
+      for metadata <- malformed do
+        input = exported_input(put_in(document, ["inputs", "prompt", "metadata"], metadata))
+        refute is_map_key(input, "metadata"), inspect(metadata)
+      end
+
+      refute is_map_key(exported_input(document), "metadata")
+    end
+
+    # The one exception: unsafe text is a shape issue wherever a document holds it.
+    test "an input's unsafe description is a shape issue" do
+      for bad <- ["a\0b", <<0xFF>>] do
+        document =
+          put_in(scenario_a(), ["inputs", "prompt", "metadata"], %{"description" => bad})
+
+        assert [%Issue{code: :malformed_document}] = invalid!(document)
+      end
+    end
+
+    test "junk as an input's metadata raises nothing" do
+      for junk <- junk() do
+        assert_no_raise(put_in(scenario_a(), ["inputs", "prompt", "metadata"], junk))
+      end
+    end
+
+    defp exported_input(document) do
+      Jason.decode!(valid!(document).json)["inputs"]["prompt"]
     end
 
     test "malformed metadata stays out of Core, and never moves the root" do

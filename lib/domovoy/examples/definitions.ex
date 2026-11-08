@@ -119,13 +119,13 @@ defmodule Domovoy.Examples.Definitions do
          }},
         {:put_choice, "choose_create_or_use_worktree",
          %{
-           "name" => "create",
+           "name" => "create_missing_worktree",
            "description" => "Create it.",
            "target" => ["run", "create_missing_worktree"]
          }},
         {:put_choice, "choose_create_or_use_worktree",
          %{
-           "name" => "existing",
+           "name" => "use_existing_worktree",
            "description" => "Use existing.",
            "target" => ["run", "sync_worktree_folders"]
          }},
@@ -201,34 +201,35 @@ defmodule Domovoy.Examples.Definitions do
       {:add_stage, "estimate_price"},
       {:set_start, "estimate_price"},
       {:remove_vertex, "main"},
-      {:add_node, "estimate_price", "#{@cracow}.Normalize", "normalize"},
+      {:add_node, "estimate_price", "#{@cracow}.Normalize", "normalize_listing"},
       {:add_node, "estimate_price", "#{@cracow}.AreaModel", "area_model"},
       {:add_node, "estimate_price", "#{@cracow}.LayoutModel", "layout_model"},
       {:add_node, "estimate_price", "#{@cracow}.LocationModel", "location_model"},
-      {:add_node, "estimate_price", "#{@cracow}.Estimate", "estimate"},
-      bind("estimate_price", "normalize", "rooms", "rooms"),
-      bind("estimate_price", "normalize", "bathrooms", "bathrooms"),
-      bind("estimate_price", "normalize", "area", "area"),
-      bind("estimate_price", "normalize", "district", "district"),
-      bind("estimate_price", "normalize", "floor", "floor"),
-      bind("estimate_price", "normalize", "balcony", "balcony"),
-      bind("estimate_price", "normalize", "year_built", "year_built"),
-      {:set_validators, "estimate_price", "normalize",
+      {:add_node, "estimate_price", "#{@cracow}.Estimate", "join_price_terms"},
+      bind("estimate_price", "normalize_listing", "rooms", "rooms"),
+      bind("estimate_price", "normalize_listing", "bathrooms", "bathrooms"),
+      bind("estimate_price", "normalize_listing", "area", "area"),
+      bind("estimate_price", "normalize_listing", "district", "district"),
+      bind("estimate_price", "normalize_listing", "floor", "floor"),
+      bind("estimate_price", "normalize_listing", "balcony", "balcony"),
+      bind("estimate_price", "normalize_listing", "year_built", "year_built"),
+      {:set_validators, "estimate_price", "normalize_listing",
        ["#{@cracow}.RoomLayout", "#{@cracow}.AreaPolicy"]},
-      bind("estimate_price", "area_model", "features", "normalize"),
-      bind("estimate_price", "layout_model", "features", "normalize"),
-      bind("estimate_price", "location_model", "features", "normalize"),
-      bind("estimate_price", "estimate", "features", "normalize"),
-      bind("estimate_price", "estimate", "base", "area_model"),
-      bind("estimate_price", "estimate", "layout", "layout_model"),
-      bind("estimate_price", "estimate", "location", "location_model"),
+      bind("estimate_price", "area_model", "features", "normalize_listing"),
+      bind("estimate_price", "layout_model", "features", "normalize_listing"),
+      bind("estimate_price", "location_model", "features", "normalize_listing"),
+      bind("estimate_price", "join_price_terms", "features", "normalize_listing"),
+      bind("estimate_price", "join_price_terms", "base", "area_model"),
+      bind("estimate_price", "join_price_terms", "layout", "layout_model"),
+      bind("estimate_price", "join_price_terms", "location", "location_model"),
       {:move, :workflow, "estimate_price", 60, 80},
-      # normalize's wire to estimate runs straight, between layout_model and location_model.
-      {:move, {:stage, "estimate_price"}, "normalize", 60, 144},
+      # normalize_listing's wire to join_price_terms runs straight, between layout_model and
+      # location_model.
+      {:move, {:stage, "estimate_price"}, "normalize_listing", 60, 144},
       {:move, {:stage, "estimate_price"}, "area_model", 480, 80},
       {:move, {:stage, "estimate_price"}, "layout_model", 480, 300},
       {:move, {:stage, "estimate_price"}, "location_model", 480, 640},
-      {:move, {:stage, "estimate_price"}, "estimate", 900, 490}
+      {:move, {:stage, "estimate_price"}, "join_price_terms", 900, 490}
     ] ++ cracow_descriptions()
   end
 
@@ -315,7 +316,7 @@ defmodule Domovoy.Examples.Definitions do
       {:set_description, {:vertex, "estimate_price"},
        "The only stage of this workflow. It checks the listing, runs three separate " <>
          "pricing steps on it, and joins their results into one price."},
-      {:set_description, {:node, "estimate_price", "normalize"},
+      {:set_description, {:node, "estimate_price", "normalize_listing"},
        "Checks that the listing could be a real flat in Kraków and turns it into one " <>
          "features value for the pricing steps. It also works out the area per room."},
       {:set_description, {:node, "estimate_price", "area_model"},
@@ -329,7 +330,7 @@ defmodule Domovoy.Examples.Definitions do
       {:set_description, {:node, "estimate_price", "location_model"},
        "Gives a price multiplier from the district, floor, balcony and building age. Its" <>
          " coefficients are made up."},
-      {:set_description, {:node, "estimate_price", "estimate"},
+      {:set_description, {:node, "estimate_price", "join_price_terms"},
        "Multiplies the base value by the layout and location multipliers to give the " <>
          "price. It returns the price, the price per square metre and the three " <>
          "components."}

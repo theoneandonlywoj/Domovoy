@@ -649,6 +649,11 @@ defmodule DomovoyWeb.ComposerComponents do
         <.description_icon id={"#{@input.dom_id}-description"} description={@input.description} />
         <.type_chip label={@input.type_label} />
       </div>
+      <.description_text
+        id={"#{@input.dom_id}-description-text"}
+        description={@input.description}
+        class="mt-0.5"
+      />
       <div class="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted">
         <span id={"#{@input.dom_id}-required"}>
           {if @input.required, do: "required", else: "optional"}
@@ -1054,7 +1059,10 @@ defmodule DomovoyWeb.ComposerComponents do
       ]}
     >
       <.run_pill :if={@run_status} id={"#{@card.dom_id}-run-status"} status={@run_status} />
-      <header class="relative flex items-start gap-2 border-b border-base-300 px-3 py-2">
+      <header class={[
+        "relative flex items-start gap-2 px-3 py-2",
+        @card.description == :absent && "border-b border-base-300"
+      ]}>
         <span
           data-socket={@card.in_socket}
           aria-hidden="true"
@@ -1096,6 +1104,11 @@ defmodule DomovoyWeb.ComposerComponents do
           {@card.issue_count}
         </span>
       </header>
+      <.description_text
+        id={"#{@card.dom_id}-description-text"}
+        description={@card.description}
+        class="-mt-1 border-b border-base-300 px-3 pb-2"
+      />
 
       <div :if={@card.kind == "stage"} class="flex items-center gap-2 px-3 py-2 text-xs">
         <span id={"#{@card.dom_id}-nodes"}>{@card.node_count} nodes</span>
@@ -1207,7 +1220,10 @@ defmodule DomovoyWeb.ComposerComponents do
       ]}
     >
       <.run_pill :if={@run_status} id={"#{@card.dom_id}-run-status"} status={@run_status} />
-      <header class="relative flex items-start gap-2 border-b border-base-300 px-3 py-2">
+      <header class={[
+        "relative flex items-start gap-2 px-3 py-2",
+        @card.description == :absent && "border-b border-base-300"
+      ]}>
         <span
           data-socket={@card.after_in_socket}
           aria-hidden="true"
@@ -1243,6 +1259,11 @@ defmodule DomovoyWeb.ComposerComponents do
           {@card.issue_count}
         </span>
       </header>
+      <.description_text
+        id={"#{@card.dom_id}-description-text"}
+        description={@card.description}
+        class="-mt-1 border-b border-base-300 px-3 pb-2"
+      />
 
       <p :for={issue <- @card.issues} class="px-3 pt-2 text-xs text-error">{issue.message}</p>
 
@@ -1418,6 +1439,29 @@ defmodule DomovoyWeb.ComposerComponents do
     </span>
     """
   end
+
+  attr :id, :string, required: true
+  attr :description, :any, required: true
+  attr :class, :any, default: nil
+
+  # The description itself, for where there's room to read it.
+  defp description_text(%{description: {:ok, text}} = assigns) do
+    assigns = assign(assigns, text: text)
+
+    ~H"""
+    <p id={@id} class={["whitespace-pre-line break-words text-xs text-muted", @class]}>
+      {@text}
+    </p>
+    """
+  end
+
+  defp description_text(%{description: :malformed} = assigns) do
+    ~H"""
+    <p id={@id} class={["text-xs text-error", @class]}>This description can't be read.</p>
+    """
+  end
+
+  defp description_text(assigns), do: ~H""
 
   attr :id, :string, required: true
   attr :description, :any, required: true
@@ -1822,6 +1866,7 @@ defmodule DomovoyWeb.ComposerComponents do
         Close
       </button>
       <h3 class={@section_title}>{kind_label(@card.kind)} {@card.name}</h3>
+      <.description_text id="inspector-description" description={@card.description} />
       <p :for={issue <- @card.issues} class="text-xs text-error">{issue.message}</p>
 
       <.form
@@ -2156,6 +2201,7 @@ defmodule DomovoyWeb.ComposerComponents do
     <div id="inspector-runner" class="space-y-2">
       <h3 class={@section_title}>Runner</h3>
       <p id="inspector-runner-label" class="text-sm">{@card.label}</p>
+      <.description_text id="inspector-description" description={@card.description} />
       <.form for={@rename} id="rename-form" phx-submit="rename_node" phx-auto-recover="ignore">
         <.input field={@rename[:node]} type="hidden" />
         <.input
