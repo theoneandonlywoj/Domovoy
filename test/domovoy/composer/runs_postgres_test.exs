@@ -352,4 +352,123 @@ defmodule Domovoy.Composer.RunsPostgresTest do
       assert Composer.get_run(draft.id, attrs.run_id) == {:error, :not_found}
     end
   end
+
+  describe "history from run summaries" do
+    defp row!(draft, inserted_at) do
+      Repo.insert!(
+        %Run{
+          id: Ecto.UUID.generate(),
+          draft_id: draft.id,
+          workflow_name: draft.document["name"],
+          document: draft.document,
+          fingerprint: "unstarted",
+          start_command_id: "start",
+          inserted_at: inserted_at
+        },
+        log: false
+      )
+    end
+
+    defp ago(seconds), do: DateTime.add(DateTime.utc_now(:second), -seconds)
+
+    defp summarize!(row, phase) do
+      view = %{
+        committed_phase: phase,
+        outcome: if(phase == "finished", do: "succeeded"),
+        generation: 0,
+        committed_seq: 5,
+        awaiting:
+          if(phase == "waiting",
+            do: [%{occurrence: "o", decision: "review", choices: ["accept"]}],
+            else: []
+          ),
+        error: nil
+      }
+
+      :ok = Runs.summarize(row.id, view)
+    end
+
+    defp ids(rows), do: Enum.map(rows, & &1.id)
+
+    test "an old waiting run is found past 11 newer finished ones" do
+      draft = draft!(leak_run(), "Leak")
+      waiting = row!(draft, ago(3_600))
+      summarize!(waiting, "waiting")
+      for seconds <- 1..11, do: draft |> row!(ago(seconds)) |> summarize!("finished")
+
+      assert ids(Composer.attention_runs(draft.id, 5)) == [waiting.id]
+      assert [%Run{summary: %{committed_phase: "waiting"}}] = Runs.attention(draft.id, 5)
+    end
+
+    test "a known waiting run ranks before newer runs with no summary yet" do
+      draft = draft!(leak_run(), "Leak")
+      waiting = row!(draft, ago(3_600))
+      summarize!(waiting, "waiting")
+      unsummarised = for seconds <- 1..6, do: row!(draft, ago(seconds))
+
+      assert [first | rest] = Runs.attention(draft.id, 5)
+      assert first.id == waiting.id
+      # Then the newest with no summary, while there is room.
+      assert ids(rest) == unsummarised |> Enum.take(4) |> ids()
+      assert Enum.all?(rest, &is_nil(&1.summary))
+
+      assert Runs.attention(nil, 5) == []
+      assert Runs.attention("junk", 5) == []
+    end
+
+    test "120 rows from one second page 25 at a time, each once, opening nothing" do
+      draft = draft!(leak_run(), "Leak")
+      at = ago(10)
+      all = for _ <- 1..120, do: row!(draft, at).id
+
+      {pages, calls} =
+        trace(fn -> page_all(%{draft_id: draft.id}, nil, []) end)
+
+      assert Enum.map(pages, &length/1) == [25, 25, 25, 25, 20]
+      seen = List.flatten(pages)
+      assert Enum.sort(seen) == Enum.sort(all)
+      assert length(Enum.uniq(seen)) == 120
+      refute Enum.any?(calls, &(&1 in [:open, :view]))
+    end
+
+    test "filters by status, by a deleted draft and by a cast draft id" do
+      draft = draft!(leak_run(), "Leak")
+      waiting = row!(draft, ago(330))
+      summarize!(waiting, "waiting")
+      finished = row!(draft, ago(320))
+      summarize!(finished, "finished")
+      # Past the start grace, so the draft can be deleted below.
+      missing = row!(draft, ago(310))
+
+      page = &ids(Runs.page(Map.put(&1, :draft_id, draft.id), nil, 25).runs)
+
+      assert page.(%{status: "attention"}) == [missing.id, waiting.id]
+      assert page.(%{status: "waiting"}) == [waiting.id]
+      assert page.(%{status: "succeeded"}) == [finished.id]
+      assert page.(%{status: "failed"}) == []
+      assert page.(%{status: "nonsense"}) == [missing.id, finished.id, waiting.id]
+
+      assert Runs.page(%{draft_id: "not-a-uuid"}, nil, 25).runs == []
+      assert Runs.page(%{draft_id: "deleted"}, nil, 25).runs == []
+
+      {:ok, _deleted} =
+        draft.id |> Composer.get_draft() |> elem(1) |> Composer.delete_draft()
+
+      assert ids(Runs.page(%{draft_id: "deleted"}, nil, 25).runs) ==
+               [missing.id, finished.id, waiting.id]
+    end
+
+    defp page_all(filters, cursor, pages) do
+      %{runs: runs, next: next} = Composer.run_page(filters, cursor, 25)
+      pages = [ids(runs) | pages]
+      if next, do: page_all(filters, next, pages), else: Enum.reverse(pages)
+    end
+
+    defp trace(fun) do
+      parent = self()
+      calls = Domovoy.CoreCallTrace.calls(fn -> send(parent, {:traced, fun.()}) end)
+      assert_received {:traced, result}
+      {result, for({name, _args} <- calls, do: name)}
+    end
+  end
 end

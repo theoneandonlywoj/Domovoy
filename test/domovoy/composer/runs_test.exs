@@ -10,8 +10,10 @@ defmodule Domovoy.Composer.RunsTest do
   alias Domovoy.Composer.Run
   alias Domovoy.Composer.RunInputs
   alias Domovoy.Composer.Runs
+  alias Domovoy.Composer.RunSummary
+  alias Domovoy.Composer.RunSummarySweeper
+  alias Domovoy.CoreCallTrace
   alias Domovoy.Examples.Definitions
-  alias Domovoy.NoExecutionTrace
   alias Domovoy.SpyJournal
   alias Domovoy.UncertainHoldRunner
   alias Domovoy.UnknownCommitJournal
@@ -21,19 +23,27 @@ defmodule Domovoy.Composer.RunsTest do
   @gated [
     ack: 2,
     activate: 1,
-    cancel: 1,
+    attention: 2,
+    cancel: 2,
     decide: 4,
     draft_changed?: 2,
     encode_event: 1,
     get: 2,
-    latest_unfinished: 1,
+    get_by_id: 1,
     open: 1,
-    recent: 1,
-    recent: 2,
+    page: 3,
+    pause: 2,
+    reconcile: 3,
     record: 4,
+    refresh_summaries: 1,
+    resume: 2,
     resync: 1,
     start: 1,
+    stop: 2,
     subscribe: 2,
+    summarize: 2,
+    sweep_summaries: 1,
+    unpause: 2,
     unsubscribe: 1,
     view: 1
   ]
@@ -99,10 +109,20 @@ defmodule Domovoy.Composer.RunsTest do
     await_phase(handle, "finished")
   end
 
-  # The functions of Core's run API the calling process calls during `fun`.
-  defp core_run_calls(fun) do
-    for {_pid, {CoreRuns, name, _arity}} <- NoExecutionTrace.calls_to([CoreRuns], fun), do: name
+  # A committed view of a run that succeeded, for summaries written by hand.
+  defp finished_view do
+    %{
+      committed_phase: "finished",
+      outcome: "succeeded",
+      generation: 0,
+      committed_seq: 9,
+      awaiting: [],
+      error: nil
+    }
   end
+
+  # The functions of Core's run API any process calls during `fun`.
+  defp core_run_calls(fun), do: for({name, _args} <- CoreCallTrace.calls(fun), do: name)
 
   describe "with the flag off" do
     setup do
@@ -143,8 +163,10 @@ defmodule Domovoy.Composer.RunsTest do
 
     test "the composer's delegates refuse too" do
       assert Composer.start_run(:junk) == {:error, :runs_disabled}
-      assert Composer.recent_runs(:junk) == {:error, :runs_disabled}
-      assert Composer.recent_runs(:junk, 1) == {:error, :runs_disabled}
+      assert Composer.run_page(%{}, nil, 10) == {:error, :runs_disabled}
+      assert Composer.attention_runs(:junk, 5) == {:error, :runs_disabled}
+      assert Composer.summarize_run(:junk, :junk) == {:error, :runs_disabled}
+      assert Composer.refresh_run_summaries([]) == {:error, :runs_disabled}
       refute Composer.runs_enabled?()
     end
   end
@@ -217,6 +239,23 @@ defmodule Domovoy.Composer.RunsTest do
               } = view} = Composer.run_view(handle)
 
       refute inspect(view) =~ "Krowodrza"
+    end
+
+    test "stop, resume and cancel give their operation, and a repeated id reads the same one" do
+      %{handle: handle} = start_review()
+
+      assert {:ok, %{operation_id: stop, accepted_seq: seq}} = Runs.stop(handle, "stop-1")
+      assert is_integer(seq)
+      assert {:ok, %{operation_id: ^stop}} = Runs.stop(handle, "stop-1")
+      await_phase(handle, "stopped")
+
+      assert {:ok, %{operation_id: resume}} = Composer.resume_run(handle, "resume-1")
+      assert resume != stop
+      await_fact(handle, &(&1["type"] == "operation_completed" and &1["operation_id"] == resume))
+
+      assert {:ok, %{operation_id: _cancel}} = Composer.cancel_run(handle, "cancel-1")
+      assert %{outcome: "cancelled"} = await_phase(handle, "finished")
+      assert {:error, {:refused, :already_terminal}} = Composer.stop_run(handle, "stop-2")
     end
 
     test "a draft that became invalid starts nothing" do
@@ -340,6 +379,61 @@ defmodule Domovoy.Composer.RunsTest do
       send(runner, :release)
       assert row_count(attrs.run_id) == 1
       assert %{outcome: "succeeded"} = await_phase(open!(attrs.run_id), "finished")
+    end
+  end
+
+  describe "lineage" do
+    test "a run of the same draft is kept as the source, and a retry gives one row" do
+      %{draft: draft, run_id: source} = start_review()
+      attrs = Map.put(start_attrs(draft, review_values()), :source_run_id, source)
+
+      assert {:ok, run_id} = Runs.start(attrs)
+      assert Runs.start(attrs) == {:ok, run_id}
+
+      assert row_count(run_id) == 1
+      assert %Run{source_run_id: ^source} = Repo.get!(Run, run_id)
+    end
+
+    test "another draft's run, a malformed id and nil keep no source" do
+      draft = review_draft()
+      other = insert_row!(review_draft(), [])
+
+      for source <- [other.id, "not-a-uuid", nil, 7] do
+        attrs = Map.put(start_attrs(draft, review_values()), :source_run_id, source)
+
+        assert {:ok, run_id} = Runs.start(attrs)
+        assert %Run{source_run_id: nil} = Repo.get!(Run, run_id), inspect(source)
+      end
+    end
+  end
+
+  describe "input sets" do
+    test "a set of the same draft is kept, and a retry naming none is still one run" do
+      draft = review_draft()
+      fields = RunInputs.fields(draft.document)
+      {:ok, set} = Composer.save_input_set(draft.id, "Sample", fields, @review_form, [])
+      attrs = Map.put(start_attrs(draft, review_values()), :input_set_id, set.id)
+
+      assert {:ok, run_id} = Runs.start(attrs)
+      assert Runs.start(Map.delete(attrs, :input_set_id)) == {:ok, run_id}
+
+      assert row_count(run_id) == 1
+      assert %Run{input_set_id: set_id} = Repo.get!(Run, run_id)
+      assert set_id == set.id
+    end
+
+    test "another draft's set, a malformed id and nil keep no set" do
+      draft = review_draft()
+      other = review_draft()
+      fields = RunInputs.fields(other.document)
+      {:ok, foreign} = Composer.save_input_set(other.id, "Sample", fields, @review_form, [])
+
+      for set_id <- [foreign.id, "not-a-uuid", nil, 7] do
+        attrs = Map.put(start_attrs(draft, review_values()), :input_set_id, set_id)
+
+        assert {:ok, run_id} = Runs.start(attrs)
+        assert %Run{input_set_id: nil} = Repo.get!(Run, run_id), inspect(set_id)
+      end
     end
   end
 
@@ -480,25 +574,159 @@ defmodule Domovoy.Composer.RunsTest do
       assert Runs.get("nope", run_id) == {:error, :not_found}
       assert Runs.get(draft.id, Ecto.UUID.generate()) == {:error, :not_found}
     end
+  end
 
-    test "recent/2 and latest_unfinished/1 take a draft's rows, newest first" do
-      %{draft: draft, run_id: waiting} = start_review()
-      newer = insert_row!(draft, inserted_at: DateTime.add(DateTime.utc_now(:second), 30))
-      older = insert_row!(draft, inserted_at: DateTime.add(DateTime.utc_now(:second), -300))
-      insert_row!(draft!(hold_run()), [])
+  describe "summaries" do
+    defp gone_runner_row!(draft) do
+      document = put_in(hold_run()["vertices"]["main"]["nodes"]["hold"]["runner"], "Gone.Runner")
+      insert_row!(draft, document: document)
+    end
 
-      assert Enum.map(Runs.recent(draft.id), & &1.id) == [newer.id, waiting, older.id]
-      assert Enum.map(Composer.recent_runs(draft.id, 1), & &1.id) == [newer.id]
+    defp summary(run_id), do: Repo.get(RunSummary, run_id)
 
-      # `newer` has no Core run but counts for now, as its start may be in flight.
-      assert %Run{id: id} = Composer.latest_unfinished_run(draft.id)
-      assert id == newer.id
+    test "summarize/2 twice with one view changes only refreshed_at, and an older view loses" do
+      %{run_id: run_id, handle: handle} = start_review()
+      {:ok, view} = Runs.view(handle)
 
-      Repo.update_all(from(run in Run, where: run.id == ^newer.id),
-        set: [inserted_at: DateTime.add(DateTime.utc_now(:second), -120)]
+      assert Composer.summarize_run(run_id, view) == :ok
+      first = summary(run_id)
+
+      assert %RunSummary{committed_phase: "waiting", terminal: false} = first
+      assert first.pending_decisions == ["review"]
+      assert first.committed_seq == view.committed_seq
+
+      assert Runs.summarize(run_id, view) == :ok
+      second = summary(run_id)
+
+      assert Map.drop(second, [:refreshed_at]) == Map.drop(first, [:refreshed_at])
+      assert DateTime.compare(second.refreshed_at, first.refreshed_at) == :gt
+
+      older = %{view | committed_seq: view.committed_seq - 1, committed_phase: "running"}
+      assert Runs.summarize(run_id, older) == :ok
+      assert %RunSummary{committed_phase: "waiting"} = summary(run_id)
+    end
+
+    test "two sweeps of 20 visit every one of 25 unreadable and 5 waiting runs" do
+      draft = draft!(hold_run())
+      unreadable = for _ <- 1..25, do: gone_runner_row!(draft).id
+      waiting = for _ <- 1..5, do: start_review().run_id
+
+      assert Runs.sweep_summaries(20) == {:ok, 20}
+      # The 10 still missing, then the waiting ones; a finished summary isn't revisited.
+      assert {:ok, second} = Runs.sweep_summaries(20)
+      assert second in 10..15
+
+      for id <- unreadable,
+          do: assert(%RunSummary{error_type: "unreadable", terminal: true} = summary(id))
+
+      for id <- waiting,
+          do: assert(%RunSummary{committed_phase: "waiting", terminal: false} = summary(id))
+    end
+
+    test "repeated sweeps rotate through unfinished runs, oldest refresh first" do
+      draft = review_draft()
+      ids = for _ <- 1..30, do: insert_row!(draft, []).id
+
+      {:ok, _visited} = Runs.sweep_summaries(30)
+      before = Map.new(ids, &{&1, summary(&1).refreshed_at})
+
+      {:ok, 20} = Runs.sweep_summaries(20)
+      {:ok, 20} = Runs.sweep_summaries(20)
+
+      for id <- ids do
+        assert DateTime.compare(summary(id).refreshed_at, before[id]) == :gt
+      end
+    end
+
+    test "a new row with no Core run is unfinished, and one past the start grace is not" do
+      draft = review_draft()
+      fresh = insert_row!(draft, [])
+      old = insert_row!(draft, inserted_at: DateTime.add(DateTime.utc_now(:second), -120))
+
+      assert {:ok, rows} = Composer.refresh_run_summaries([fresh.id, old.id, "junk"])
+      assert Enum.map(rows, & &1.id) == [fresh.id, old.id]
+
+      assert %RunSummary{error_type: "never_started", terminal: false} = summary(fresh.id)
+      assert %RunSummary{error_type: "never_started", terminal: true} = summary(old.id)
+    end
+
+    test "a run read again after finishing gets a finished summary over a waiting one" do
+      %{run_id: run_id, handle: handle} = start_review()
+      {:ok, view} = Runs.view(handle)
+      :ok = Runs.summarize(run_id, view)
+
+      [%{occurrence: occurrence}] = view.awaiting
+      :ok = Runs.decide(handle, occurrence, "accept", %{})
+      await_phase(handle, "finished")
+
+      assert {:ok, [_row]} = Runs.refresh_summaries([run_id])
+      assert %RunSummary{committed_phase: "finished", terminal: true} = summary(run_id)
+    end
+
+    test "a summary of an older projection version is swept again, though terminal" do
+      draft = draft!(hold_run())
+      row = gone_runner_row!(draft)
+      :ok = Runs.summarize(row.id, finished_view())
+
+      Repo.update_all(from(summary in RunSummary, where: summary.run_id == ^row.id),
+        set: [projection_version: 0]
       )
 
-      assert %Run{id: ^waiting} = Runs.latest_unfinished(draft.id)
+      assert Runs.sweep_summaries(20) == {:ok, 1}
+      assert %RunSummary{projection_version: 1, error_type: "unreadable"} = summary(row.id)
+      assert Runs.sweep_summaries(20) == {:ok, 0}
+    end
+
+    test "a failure placeholder keeps the view a summary holds, and only marks it" do
+      draft = draft!(hold_run())
+      finished = gone_runner_row!(draft)
+      :ok = Runs.summarize(finished.id, finished_view())
+      waiting = gone_runner_row!(draft)
+
+      :ok =
+        Runs.summarize(waiting.id, %{finished_view() | committed_phase: "waiting", outcome: nil})
+
+      Repo.update_all(from(summary in RunSummary, where: summary.run_id == ^finished.id),
+        set: [projection_version: 0]
+      )
+
+      assert {:ok, [_two, _rows]} = Runs.refresh_summaries([finished.id, waiting.id])
+
+      assert %RunSummary{
+               committed_phase: "finished",
+               outcome: "succeeded",
+               generation: 0,
+               committed_seq: 9,
+               error_type: "unreadable",
+               terminal: true,
+               projection_version: 1
+             } = summary(finished.id)
+
+      assert %RunSummary{
+               committed_phase: "waiting",
+               committed_seq: 9,
+               error_type: "unreadable",
+               terminal: true
+             } = summary(waiting.id)
+    end
+
+    test "a summary of a run deleted meanwhile writes nothing and raises nothing" do
+      row = insert_row!(review_draft(), [])
+      Repo.delete!(row, log: false)
+
+      assert Runs.summarize(row.id, finished_view()) == :ok
+      assert Runs.refresh_summaries([row.id]) == {:ok, []}
+      assert summary(row.id) == nil
+    end
+
+    test "the sweeper is a child only when its interval is set" do
+      on_exit(fn -> Application.delete_env(:domovoy, :run_summary_sweep_ms) end)
+      Application.put_env(:domovoy, :run_summary_sweep_ms, 1_000)
+
+      assert Runs.children() == [
+               {DomovoyCore.Runtime, name: Runs.runtime()},
+               {RunSummarySweeper, 1_000}
+             ]
     end
   end
 

@@ -7,6 +7,7 @@ defmodule Domovoy.Composer.LogTest do
   alias Domovoy.Composer
   alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Run
+  alias Domovoy.Composer.RunInputs
   alias Domovoy.ComposerFixtures
   alias Domovoy.Repo
 
@@ -83,6 +84,42 @@ defmodule Domovoy.Composer.LogTest do
     assert log =~ "positive-control"
     refute log =~ "composer_runs"
     refute log =~ @table
+    refute log =~ @sentinel
+  end
+
+  test "input set queries log nothing, so no typed value" do
+    previous = Application.get_env(:domovoy, :composer_runs_enabled)
+    Application.put_env(:domovoy, :composer_runs_enabled, true)
+    on_exit(fn -> Application.put_env(:domovoy, :composer_runs_enabled, previous) end)
+
+    {:ok, draft} = Composer.create_draft(%{title: "title"})
+
+    {:ok, draft} =
+      Composer.save_document(
+        draft,
+        ComposerFixtures.edit_all(draft.document, [
+          {:put_input, "note", %{"type" => "DomovoyCore.Type.String"}}
+        ])
+      )
+
+    fields = RunInputs.fields(draft.document)
+
+    log =
+      capture_log(fn ->
+        {:ok, set} =
+          Composer.save_input_set(draft.id, "Sample", fields, %{"note" => @sentinel}, [])
+
+        {:error, :name_taken} = Composer.save_input_set(draft.id, "Sample", fields, %{}, [])
+        [_set] = Composer.list_input_sets(draft.id)
+        {:ok, ^set} = Composer.fetch_input_set(draft.id, set.id)
+        %{params: %{"note" => @sentinel}} = Composer.load_input_set(set, fields)
+        :ok = Composer.delete_input_set(draft.id, set.id)
+        {:ok, _deleted} = Composer.delete_draft(draft)
+        Logger.debug("positive-control")
+      end)
+
+    assert log =~ "positive-control"
+    refute log =~ "composer_input_sets"
     refute log =~ @sentinel
   end
 

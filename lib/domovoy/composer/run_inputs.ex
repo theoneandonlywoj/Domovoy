@@ -15,11 +15,23 @@ defmodule Domovoy.Composer.RunInputs do
 
   @primitives %{string: :text, integer: :integer, float: :float, boolean: :boolean}
 
+  @eligible [:text, :integer, :float, :number, :boolean]
+  @opt_in [:path, :json, :json_object, :uuid, :uri, :email]
+
   @type editor :: LiteralPolicy.editor() | :none
+  @typedoc """
+  Whether an input set may keep a field's text: `:eligible` by default, `:opt_in` only
+  when asked, since a path or an id can be sensitive, and `:never` for one that can't
+  be typed here.
+  """
+  @type reuse :: :eligible | :opt_in | :never
   @type field :: %{
           name: String.t(),
           type: String.t(),
+          type_id: term(),
           editor: editor(),
+          reuse: reuse(),
+          description: String.t() | nil,
           default: String.t() | nil,
           required: boolean(),
           bound: boolean()
@@ -28,17 +40,23 @@ defmodule Domovoy.Composer.RunInputs do
   @type error :: %{name: String.t(), code: code()}
 
   @doc """
-  The fields a start form shows, by input name.
+  The fields a start form shows, by input name, each with its description, its raw
+  type id, which tells a changed type apart, and whether an input set may keep it.
   """
   @spec fields(document :: Document.t()) :: [field()]
   def fields(document) do
     bound = bound_inputs(document)
 
     for {name, input} <- Enum.sort(document["inputs"]) do
+      editor = editor(input["type"])
+
       %{
         name: name,
         type: Catalog.type_label(input["type"]),
-        editor: editor(input["type"]),
+        type_id: input["type"],
+        editor: editor,
+        reuse: reuse(editor),
+        description: description(input),
         default: input["default"],
         required: input["required"] == true,
         bound: name in bound
@@ -68,7 +86,10 @@ defmodule Domovoy.Composer.RunInputs do
       %{
         name: name,
         type: Catalog.type_label(type),
+        type_id: type,
         editor: editor(type),
+        reuse: :never,
+        description: nil,
         default: nil,
         required: false,
         bound: false
@@ -89,19 +110,34 @@ defmodule Domovoy.Composer.RunInputs do
   end
 
   @doc """
-  The runners of a document that aren't pure, for a person to confirm. A runner that
-  declares nothing counts. An unknown runner is left out, because a start refuses it.
+  Each node of a document whose runner isn't pure, for a person to confirm, by stage
+  and node. A runner that declares nothing counts. An unknown runner is left out,
+  because a start refuses it.
   """
-  @spec effects(document :: Document.t()) :: [%{id: String.t(), label: String.t()}]
+  @spec effects(document :: Document.t()) :: [
+          %{stage: String.t(), node: String.t(), id: String.t(), label: String.t()}
+        ]
   def effects(document) do
-    for {_vertex, %{"nodes" => nodes}} <- document["vertices"],
-        {_name, %{"runner" => id}} <- nodes,
+    for {stage, %{"nodes" => nodes}} <- document["vertices"],
+        {node, %{"runner" => id}} <- nodes,
         {:ok, runner} <- [Catalog.runner(id)],
-        Runner.effect(runner.module).class != :pure,
-        uniq: true do
-      %{id: runner.id, label: runner.label}
+        Runner.effect(runner.module).class != :pure do
+      %{stage: stage, node: node, id: runner.id, label: runner.label}
     end
-    |> Enum.sort_by(& &1.label)
+    |> Enum.sort_by(&{&1.stage, &1.node})
+  end
+
+  @spec reuse(editor :: editor()) :: reuse()
+  defp reuse(editor) when editor in @eligible, do: :eligible
+  defp reuse(editor) when editor in @opt_in, do: :opt_in
+  defp reuse(_editor), do: :never
+
+  @spec description(input :: map()) :: String.t() | nil
+  defp description(input) do
+    case Document.description(input) do
+      {:ok, text} -> text
+      _absent_or_malformed -> nil
+    end
   end
 
   @spec editor(type :: term()) :: editor()

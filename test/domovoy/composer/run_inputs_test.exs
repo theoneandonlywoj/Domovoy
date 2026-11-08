@@ -50,6 +50,24 @@ defmodule Domovoy.Composer.RunInputsTest do
              } = Enum.find(RunInputs.fields(document), &(&1.name == "base_branch"))
     end
 
+    test "gives a description, the raw type id and whether a set may keep the text" do
+      document =
+        edit_all(
+          inputs(%{
+            "area" => %{"type" => @float},
+            "repo" => %{"type" => @directory},
+            "day" => %{"type" => @date}
+          }),
+          [{:set_description, {:input, "area"}, "Floor area in square metres."}]
+        )
+
+      assert [
+               %{name: "area", type_id: @float, reuse: :eligible, description: "Floor area" <> _},
+               %{name: "day", type_id: @date, reuse: :never, description: nil},
+               %{name: "repo", type_id: @directory, reuse: :opt_in}
+             ] = RunInputs.fields(document)
+    end
+
     test "reads a bind-only type by its primitive, and a required Date as none" do
       document =
         inputs(%{
@@ -191,7 +209,20 @@ defmodule Domovoy.Composer.RunInputsTest do
       refute "DomovoyCore.Runner.BinaryToString" in ids
     end
 
-    test "skips a runner the catalog doesn't know, and lists one runner once" do
+    test "lists each node instance, so two nodes sharing one runner give two entries" do
+      document =
+        edit_all(Document.new("effects"), [
+          {:add_node, "main", "DomovoyCore.Runner.WriteFile", "two"},
+          {:add_node, "main", "DomovoyCore.Runner.WriteFile", "one"}
+        ])
+
+      assert [
+               %{stage: "main", node: "one", id: "DomovoyCore.Runner.WriteFile", label: label},
+               %{stage: "main", node: "two", id: "DomovoyCore.Runner.WriteFile", label: label}
+             ] = RunInputs.effects(document)
+    end
+
+    test "skips a runner the catalog doesn't know" do
       document =
         edit_all(Document.new("effects"), [
           {:add_node, "main", "DomovoyCore.Runner.WriteFile", "one"},
@@ -200,8 +231,7 @@ defmodule Domovoy.Composer.RunInputsTest do
 
       gone = put_in(document["vertices"]["main"]["nodes"]["two"]["runner"], "Gone.Runner")
 
-      assert [%{id: "DomovoyCore.Runner.WriteFile"}] = RunInputs.effects(document)
-      assert [%{id: "DomovoyCore.Runner.WriteFile"}] = RunInputs.effects(gone)
+      assert [%{node: "one", id: "DomovoyCore.Runner.WriteFile"}] = RunInputs.effects(gone)
     end
 
     test "Core 0.3.3's file runners are in the catalog with labels of their own" do

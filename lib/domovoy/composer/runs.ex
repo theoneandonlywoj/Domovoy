@@ -6,6 +6,12 @@ defmodule Domovoy.Composer.Runs do
   `enabled?/0`, `children/0`, `runtime/0` and `unfinished?/1` gives
   `{:error, :runs_disabled}`, and no Core run function is called.
 
+  It also keeps each run's summary, a derived status row history reads instead of
+  opening every run. A summary is written from a committed view, and only a newer one,
+  or a newer projection version, changes its status; a run that can't be read keeps the
+  view it last had and is only marked. It authorises nothing: every
+  command re-reads Core.
+
   Core's failures go through `CoreBridge.guarded/2`, which keeps only an error's type,
   because a reason or a cause can hold an input's value or an expanded path. Run-table
   queries pass `log: false`, because a snapshot's literals may hold secrets. A view has
@@ -17,8 +23,11 @@ defmodule Domovoy.Composer.Runs do
   alias Domovoy.Composer.CoreBridge
   alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Export
+  alias Domovoy.Composer.InputSet
   alias Domovoy.Composer.Issue
   alias Domovoy.Composer.Run
+  alias Domovoy.Composer.RunSummary
+  alias Domovoy.Composer.RunSummarySweeper
   alias Domovoy.Composer.RunValues
   alias Domovoy.Composer.RunView
   alias Domovoy.Repo
@@ -30,14 +39,27 @@ defmodule Domovoy.Composer.Runs do
   alias DomovoyCore.Runs.Ref
   alias DomovoyCore.Workflow
 
-  @recent_limit 10
+  # Bumping this rewrites every summary, terminal ones too, on the next sweeps.
+  @projection_version 1
+
+  # The committed phases the Runs view's "running" filter shows.
+  @running_phases ~w(starting resuming running pausing stopping cancelling finishing)
 
   # A start may be in flight this long after its row was written.
   @start_grace_seconds 60
 
   @type disabled :: {:error, :runs_disabled}
 
+  @typedoc "An accepted command: its operation, which an `operation_completed` fact ends."
+  @type receipt :: %{operation_id: String.t(), accepted_seq: pos_integer()}
+
+  @type lifecycle_result ::
+          {:ok, receipt()}
+          | {:error, :run_frozen | :unavailable | :runs_disabled | {:refused, atom() | nil}}
+
   @type start_attrs :: %{
+          optional(:source_run_id) => String.t() | nil,
+          optional(:input_set_id) => String.t() | nil,
           draft_id: String.t(),
           lock_version: integer(),
           run_id: String.t(),
@@ -62,6 +84,16 @@ defmodule Domovoy.Composer.Runs do
           owner_live?: boolean()
         }
 
+  @typedoc "Where a page of history starts: after this row's start time and id, or nil."
+  @type cursor :: {DateTime.t(), String.t()} | nil
+
+  @typedoc """
+  What a page of history shows: one draft's runs, `"deleted"` for those of deleted
+  drafts, or nil for all; and a status from `attention running waiting stopped failed
+  succeeded cancelled all`, where anything else is `all`.
+  """
+  @type filters :: %{optional(:draft_id) => term(), optional(:status) => term()}
+
   @doc """
   Whether this host may run workflows.
   """
@@ -79,7 +111,7 @@ defmodule Domovoy.Composer.Runs do
   """
   @spec children() :: [Supervisor.child_spec() | module() | {module(), keyword()}]
   def children do
-    if enabled?(), do: [{DomovoyCore.Runtime, name: runtime()}], else: []
+    if enabled?(), do: [{DomovoyCore.Runtime, name: runtime()}] ++ sweeper(), else: []
   end
 
   @doc """
@@ -89,6 +121,9 @@ defmodule Domovoy.Composer.Runs do
   So the row is removed only when Core answers that this start isn't there and no
   attempt of this call had an unknown outcome. Otherwise the row stays and the answer
   is `{:opened_uncertain, run_id}`, since that row still reaches whatever committed.
+  An optional `source_run_id` is kept on the row only when it names a run of the same
+  draft, and an optional `input_set_id` only when it names a set of that draft; neither
+  is part of what makes a retry the same start.
   """
   @spec start(attrs :: start_attrs()) ::
           {:ok, String.t()}
@@ -123,6 +158,22 @@ defmodule Domovoy.Composer.Runs do
       with {:ok, draft_uuid} <- Ecto.UUID.cast(draft_id),
            {:ok, run_uuid} <- Ecto.UUID.cast(run_id),
            %Run{} = row <- Repo.get_by(Run, [id: run_uuid, draft_id: draft_uuid], log: false) do
+        {:ok, row}
+      else
+        _missing -> {:error, :not_found}
+      end
+    end)
+  end
+
+  @doc """
+  Finds a run by its id alone, including one whose draft was deleted. A malformed id is
+  the same as an unknown one.
+  """
+  @spec get_by_id(run_id :: term()) :: {:ok, Run.t()} | {:error, :not_found} | disabled()
+  def get_by_id(run_id) do
+    gated(fn ->
+      with {:ok, run_uuid} <- Ecto.UUID.cast(run_id),
+           %Run{} = row <- Repo.get(Run, run_uuid, log: false) do
         {:ok, row}
       else
         _missing -> {:error, :not_found}
@@ -205,14 +256,54 @@ defmodule Domovoy.Composer.Runs do
   def encode_event(envelope), do: gated(fn -> Envelope.encode(envelope) end)
 
   @doc """
-  Cancels a run. A frozen run gives `:run_frozen`, because a command would start its
-  owner; a command the run's phase refuses gives its type.
+  Cancels a run under `command_id`, one per intent, so a retry reads the same receipt.
+  A frozen run gives `:run_frozen`; a command the run's phase refuses gives its type.
   """
-  @spec cancel(handle :: Ref.t()) ::
-          :ok | {:error, :run_frozen | :unavailable | :runs_disabled | {:refused, atom() | nil}}
-  def cancel(handle) do
-    gated(fn -> command(handle, :cancel, &"cancel:#{&1.committed_seq}", []) end)
-  end
+  @spec cancel(handle :: Ref.t(), command_id :: String.t()) :: lifecycle_result()
+  def cancel(handle, command_id), do: lifecycle(handle, :cancel, command_id)
+
+  @doc """
+  Stops a run under `command_id`: active work ends and a checkpoint is kept, so Resume
+  can continue it. Refusals are as for `cancel/2`.
+  """
+  @spec stop(handle :: Ref.t(), command_id :: String.t()) :: lifecycle_result()
+  def stop(handle, command_id), do: lifecycle(handle, :stop, command_id)
+
+  @doc """
+  Resumes a stopped run under `command_id`, from its checkpoint. Refusals are as for
+  `cancel/2`.
+  """
+  @spec resume(handle :: Ref.t(), command_id :: String.t()) :: lifecycle_result()
+  def resume(handle, command_id), do: lifecycle(handle, :resume, command_id)
+
+  @doc """
+  Pauses a run under `command_id`: active work finishes, and nothing new starts until
+  Unpause. Refusals are as for `cancel/2`.
+  """
+  @spec pause(handle :: Ref.t(), command_id :: String.t()) :: lifecycle_result()
+  def pause(handle, command_id), do: lifecycle(handle, :pause, command_id)
+
+  @doc """
+  Unpauses a paused run under `command_id`, or one blocked because its pause timed out.
+  Refusals are as for `cancel/2`.
+  """
+  @spec unpause(handle :: Ref.t(), command_id :: String.t()) :: lifecycle_result()
+  def unpause(handle, command_id), do: lifecycle(handle, :unpause, command_id)
+
+  @doc """
+  Settles one uncertain effect, `uncertainty_id`, under `command_id`, on a person's word
+  that retrying its step is safe. The evidence is a fixed map holding no value: Core
+  keeps it but reads nothing in it (CORE_CHANGES.md, gap L). Refusals are as for
+  `cancel/2`; one already settled gives `nothing_to_reconcile`.
+  """
+  @spec reconcile(handle :: Ref.t(), command_id :: String.t(), uncertainty_id :: String.t()) ::
+          lifecycle_result()
+  def reconcile(handle, command_id, uncertainty_id),
+    do:
+      lifecycle(handle, :reconcile, command_id,
+        uncertainty: uncertainty_id,
+        evidence: %{"kind" => "operator_checked", "action" => "retry"}
+      )
 
   @doc """
   Answers a pending decision occurrence. The command id comes from the answer itself,
@@ -237,7 +328,7 @@ defmodule Domovoy.Composer.Runs do
         |> Base.encode16(case: :lower)
 
       opts = [occurrence: occurrence, choice: choice, inputs: inputs]
-      command(handle, :decide, fn _view -> "decide:" <> digest end, opts)
+      handle |> command(:decide, fn _view -> "decide:" <> digest end, opts) |> accepted()
     end)
   end
 
@@ -267,19 +358,110 @@ defmodule Domovoy.Composer.Runs do
   end
 
   @doc """
-  A draft's latest rows, newest first. Reads rows only, so nothing is opened.
+  A page of runs, newest first, each with its summary or nil. Reads rows only, so
+  nothing is opened; `next` is the cursor of the page after, nil on the last one.
   """
-  @spec recent(draft_id :: String.t(), limit :: pos_integer()) :: [Run.t()] | disabled()
-  def recent(draft_id, limit \\ @recent_limit) do
-    gated(fn -> Repo.all(limit(rows_query(draft_id), ^limit), log: false) end)
+  @spec page(filters :: filters(), cursor :: cursor(), limit :: pos_integer()) ::
+          %{runs: [Run.t()], next: cursor()} | disabled()
+  def page(filters, cursor, limit) do
+    gated(fn ->
+      rows =
+        summarized()
+        |> by_draft(filters[:draft_id])
+        |> by_status(filters[:status])
+        |> after_cursor(cursor)
+        |> order_by([run: row], desc: row.inserted_at, desc: row.id)
+        |> limit(^(limit + 1))
+        |> Repo.all(log: false)
+
+      {shown, rest} = Enum.split(rows, limit)
+      last = List.last(shown)
+      %{runs: shown, next: if(rest != [], do: {last.inserted_at, last.id})}
+    end)
   end
 
   @doc """
-  The newest of a draft's recent rows that isn't finished, or nil.
+  A draft's runs that may need a person, newest first: those whose summary says they
+  aren't finished, then those with no summary yet. Reads rows only.
   """
-  @spec latest_unfinished(draft_id :: String.t()) :: Run.t() | nil | disabled()
-  def latest_unfinished(draft_id) do
-    gated(fn -> draft_id |> recent() |> Enum.find(&unfinished_row?/1) end)
+  @spec attention(draft_id :: term(), limit :: pos_integer()) :: [Run.t()] | disabled()
+  def attention(draft_id, limit) do
+    gated(fn ->
+      # A nil draft, like a malformed id, matches no row.
+      summarized()
+      |> by_draft(draft_id || :none)
+      |> where([summary: summary], is_nil(summary.run_id) or not summary.terminal)
+      |> order_by([run: row, summary: summary],
+        asc: is_nil(summary.run_id),
+        desc: row.inserted_at,
+        desc: row.id
+      )
+      |> limit(^limit)
+      |> Repo.all(log: false)
+    end)
+  end
+
+  @doc """
+  Writes a run's summary from its committed `view`. Only a newer `committed_seq`, a newer
+  projection version or a first finish changes its status, so writing one view twice
+  changes only `refreshed_at` and an older view never overwrites a newer one. A run
+  deleted meanwhile gets no summary.
+  """
+  @spec summarize(run_id :: String.t(), view :: view()) :: :ok | disabled()
+  def summarize(run_id, view), do: gated(fn -> write_summary(run_id, summary_fields(view)) end)
+
+  @doc """
+  Opens these runs, reads their committed views and writes their summaries, starting no
+  owner. A run whose runner left the catalog is summarised as finished and unreadable;
+  one that can't be read now as unreadable and unfinished. Gives the runs with their
+  summaries, newest first.
+  """
+  @spec refresh_summaries(run_ids :: [term()]) :: {:ok, [Run.t()]} | disabled()
+  def refresh_summaries(run_ids) do
+    gated(fn ->
+      ids = for id <- List.wrap(run_ids), {:ok, uuid} <- [Ecto.UUID.cast(id)], do: uuid
+      rows = Repo.all(from(row in Run, where: row.id in ^ids), log: false)
+      Enum.each(rows, &refresh_row/1)
+
+      refreshed =
+        summarized()
+        |> where([run: row], row.id in ^ids)
+        |> order_by([run: row], desc: row.inserted_at, desc: row.id)
+        |> Repo.all(log: false)
+
+      {:ok, refreshed}
+    end)
+  end
+
+  @doc """
+  Refreshes up to `limit` summaries: missing ones first, then unfinished or outdated ones
+  by oldest `refreshed_at`. A refresh always moves `refreshed_at`, so repeated sweeps
+  rotate through every such run. Gives how many were visited.
+  """
+  @spec sweep_summaries(limit :: pos_integer()) :: {:ok, non_neg_integer()} | disabled()
+  def sweep_summaries(limit) do
+    gated(fn ->
+      ids =
+        summarized()
+        |> exclude(:preload)
+        |> where(
+          [summary: summary],
+          is_nil(summary.run_id) or not summary.terminal or
+            summary.projection_version < ^@projection_version
+        )
+        |> order_by([run: row, summary: summary],
+          desc: is_nil(summary.run_id),
+          asc: summary.refreshed_at,
+          asc: row.inserted_at,
+          asc: row.id
+        )
+        |> limit(^limit)
+        |> select([run: row], row.id)
+        |> Repo.all(log: false)
+
+      {:ok, _rows} = refresh_summaries(ids)
+      {:ok, length(ids)}
+    end)
   end
 
   @doc """
@@ -301,10 +483,207 @@ defmodule Domovoy.Composer.Runs do
     if enabled?(), do: Enum.any?(rows, &unfinished_row?/1), else: rows != []
   end
 
+  # A summary column takes the incoming value only from a newer view, a newer projection
+  # version or a first finish. One statement, so a write-through and a sweep can't race.
+  defmacrop newer(summary, column) do
+    sql =
+      "CASE WHEN EXCLUDED.committed_seq > ? OR EXCLUDED.projection_version > ? " <>
+        "OR (EXCLUDED.terminal AND NOT ?) THEN EXCLUDED.#{column} ELSE ? END"
+
+    quote do
+      fragment(
+        unquote(sql),
+        unquote(summary).committed_seq,
+        unquote(summary).projection_version,
+        unquote(summary).terminal,
+        field(unquote(summary), unquote(column))
+      )
+    end
+  end
+
+  # A view column as `newer/2` decides, except that a failure placeholder, which has no
+  # phase, never replaces a view the summary holds.
+  defmacrop view_column(summary, column) do
+    sql =
+      "CASE WHEN EXCLUDED.committed_phase IS NULL AND ? > 0 THEN ? " <>
+        "WHEN EXCLUDED.committed_seq > ? OR EXCLUDED.projection_version > ? " <>
+        "OR (EXCLUDED.terminal AND NOT ?) THEN EXCLUDED.#{column} ELSE ? END"
+
+    quote do
+      fragment(
+        unquote(sql),
+        unquote(summary).committed_seq,
+        field(unquote(summary), unquote(column)),
+        unquote(summary).committed_seq,
+        unquote(summary).projection_version,
+        unquote(summary).terminal,
+        field(unquote(summary), unquote(column))
+      )
+    end
+  end
+
+  @spec sweeper() :: [{module(), pos_integer()}]
+  defp sweeper do
+    case Application.get_env(:domovoy, :run_summary_sweep_ms) do
+      interval when is_integer(interval) -> [{RunSummarySweeper, interval}]
+      _unset -> []
+    end
+  end
+
+  @spec summarized() :: Ecto.Query.t()
+  defp summarized do
+    from(row in Run,
+      as: :run,
+      left_join: summary in assoc(row, :summary),
+      as: :summary,
+      preload: [summary: summary]
+    )
+  end
+
+  @spec by_draft(query :: Ecto.Query.t(), draft_id :: term()) :: Ecto.Query.t()
+  defp by_draft(query, nil), do: query
+  defp by_draft(query, "deleted"), do: where(query, [run: row], is_nil(row.draft_id))
+
+  defp by_draft(query, draft_id) do
+    case Ecto.UUID.cast(draft_id) do
+      {:ok, uuid} -> where(query, [run: row], row.draft_id == ^uuid)
+      :error -> where(query, false)
+    end
+  end
+
+  @spec by_status(query :: Ecto.Query.t(), status :: term()) :: Ecto.Query.t()
+  defp by_status(query, "attention"),
+    do: where(query, [summary: summary], is_nil(summary.run_id) or not summary.terminal)
+
+  defp by_status(query, "running"),
+    do: where(query, [summary: summary], summary.committed_phase in ^@running_phases)
+
+  defp by_status(query, phase) when phase in ~w(waiting stopped),
+    do: where(query, [summary: summary], summary.committed_phase == ^phase)
+
+  defp by_status(query, outcome) when outcome in ~w(failed succeeded cancelled) do
+    where(
+      query,
+      [summary: summary],
+      summary.committed_phase == "finished" and summary.outcome == ^outcome
+    )
+  end
+
+  defp by_status(query, _all), do: query
+
+  # Rows that share a start second are told apart by id.
+  @spec after_cursor(query :: Ecto.Query.t(), cursor :: cursor()) :: Ecto.Query.t()
+  defp after_cursor(query, nil), do: query
+
+  defp after_cursor(query, {at, id}) do
+    where(
+      query,
+      [run: row],
+      fragment(
+        "(?, ?) < (?, ?)",
+        row.inserted_at,
+        row.id,
+        type(^at, :utc_datetime),
+        type(^id, :binary_id)
+      )
+    )
+  end
+
+  @spec refresh_row(row :: Run.t()) :: :ok
+  defp refresh_row(row) do
+    fields =
+      with {:ok, %{handle: handle}} <- open(row),
+           {:ok, view} <- view(handle) do
+        summary_fields(view)
+      else
+        {:error, :runner_unavailable} -> unreadable("unreadable", true)
+        {:error, :never_started} -> unreadable("never_started", not start_in_flight?(row))
+        {:error, _unavailable} -> unreadable("unreadable", false)
+      end
+
+    write_summary(row.id, fields)
+  end
+
+  @spec summary_fields(view :: view()) :: map()
+  defp summary_fields(view) do
+    %{
+      committed_phase: view.committed_phase,
+      outcome: view.outcome,
+      generation: view.generation,
+      committed_seq: view.committed_seq,
+      pending_decisions: Enum.uniq(for %{decision: name} <- view.awaiting, do: to_string(name)),
+      error_type: view.error,
+      terminal: view.committed_phase == "finished"
+    }
+  end
+
+  @spec unreadable(error_type :: String.t(), terminal :: boolean()) :: map()
+  defp unreadable(error_type, terminal) do
+    %{
+      committed_phase: nil,
+      outcome: nil,
+      generation: nil,
+      committed_seq: 0,
+      pending_decisions: [],
+      error_type: error_type,
+      terminal: terminal
+    }
+  end
+
+  # Inserted from the run's own row, so a run deleted meanwhile writes nothing.
+  @spec write_summary(run_id :: String.t(), fields :: map()) :: :ok
+  defp write_summary(run_id, fields) do
+    row =
+      from(run in Run,
+        where: run.id == ^run_id,
+        select: %{
+          run_id: run.id,
+          committed_phase: type(^fields.committed_phase, :string),
+          outcome: type(^fields.outcome, :string),
+          generation: type(^fields.generation, :integer),
+          committed_seq: type(^fields.committed_seq, :integer),
+          pending_decisions: type(^fields.pending_decisions, {:array, :string}),
+          error_type: type(^fields.error_type, :string),
+          terminal: type(^fields.terminal, :boolean),
+          projection_version: type(^@projection_version, :integer),
+          refreshed_at: type(^DateTime.utc_now(), :utc_datetime_usec)
+        }
+      )
+
+    on_conflict =
+      from(summary in RunSummary,
+        update: [
+          set: [
+            committed_phase: view_column(summary, :committed_phase),
+            outcome: view_column(summary, :outcome),
+            generation: view_column(summary, :generation),
+            pending_decisions: view_column(summary, :pending_decisions),
+            committed_seq: view_column(summary, :committed_seq),
+            error_type: newer(summary, :error_type),
+            terminal: newer(summary, :terminal),
+            projection_version: newer(summary, :projection_version),
+            refreshed_at: fragment("EXCLUDED.refreshed_at")
+          ]
+        ]
+      )
+
+    {_count, _rows} =
+      Repo.insert_all(RunSummary, row,
+        conflict_target: :run_id,
+        on_conflict: on_conflict,
+        log: false
+      )
+
+    :ok
+  end
+
   @spec gated(fun :: (-> result)) :: result | disabled() when result: term()
   defp gated(fun), do: if(enabled?(), do: fun.(), else: {:error, :runs_disabled})
 
-  @spec rows_query(draft_id :: String.t()) :: Ecto.Query.t()
+  # A deleted draft's runs belong to no draft, so nil matches no row.
+  @spec rows_query(draft_id :: String.t() | nil) :: Ecto.Query.t()
+  defp rows_query(nil), do: from(row in Run, where: false)
+
   defp rows_query(draft_id) do
     from(row in Run,
       where: row.draft_id == ^draft_id,
@@ -350,7 +729,7 @@ defmodule Domovoy.Composer.Runs do
   # else may have committed, so it's kept as it is and no Core call can remove it.
   @spec insert_row(draft :: Draft.t(), fingerprint :: String.t(), attrs :: start_attrs()) ::
           :ok | {:opened_uncertain, String.t()} | {:error, :gone}
-  defp insert_row(draft, fingerprint, %{run_id: run_id, command_id: command_id}) do
+  defp insert_row(draft, fingerprint, %{run_id: run_id, command_id: command_id} = attrs) do
     changeset =
       Run.changeset(%Run{
         id: run_id,
@@ -358,7 +737,9 @@ defmodule Domovoy.Composer.Runs do
         workflow_name: draft.document["name"],
         document: draft.document,
         fingerprint: fingerprint,
-        start_command_id: command_id
+        start_command_id: command_id,
+        source_run_id: of_draft(Run, draft, attrs[:source_run_id]),
+        input_set_id: of_draft(InputSet, draft, attrs[:input_set_id])
       })
 
     case Repo.insert(changeset, on_conflict: :nothing, log: false) do
@@ -374,6 +755,22 @@ defmodule Domovoy.Composer.Runs do
 
       {:error, _changeset} ->
         {:error, :gone}
+    end
+  end
+
+  # A source run or an input set is kept only when it belongs to the same draft; anything
+  # else is dropped, not refused. A set deleted after this check fails the insert's
+  # foreign key, which is a changeset error, not a raise.
+  @spec of_draft(schema :: module(), draft :: Draft.t(), id :: term()) :: String.t() | nil
+  defp of_draft(schema, draft, id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         true <-
+           Repo.exists?(from(row in schema, where: row.id == ^uuid and row.draft_id == ^draft.id),
+             log: false
+           ) do
+      uuid
+    else
+      _other -> nil
     end
   end
 
@@ -484,6 +881,19 @@ defmodule Domovoy.Composer.Runs do
     end
   end
 
+  @spec accepted(result :: {:ok, receipt()} | {:error, term()}) :: :ok | {:error, term()}
+  defp accepted({:ok, _receipt}), do: :ok
+  defp accepted({:error, _reason} = error), do: error
+
+  @spec lifecycle(
+          handle :: Ref.t(),
+          name :: :pause | :unpause | :stop | :resume | :cancel | :reconcile,
+          command_id :: String.t(),
+          opts :: keyword()
+        ) :: lifecycle_result()
+  defp lifecycle(handle, name, command_id, opts \\ []),
+    do: gated(fn -> command(handle, name, fn _view -> command_id end, opts) end)
+
   # Re-reads the view first: a command starts the owner, which a frozen run must not get
   # without a person's Recover. The id comes from that committed state, or from the
   # command's own content, so a repeat of the same intent reads its receipt.
@@ -492,7 +902,7 @@ defmodule Domovoy.Composer.Runs do
           name :: CoreRuns.command(),
           id :: (view() -> String.t()),
           opts :: keyword()
-        ) :: :ok | {:error, :run_frozen | :unavailable | {:refused, atom() | nil}}
+        ) :: {:ok, receipt()} | {:error, :run_frozen | :unavailable | {:refused, atom() | nil}}
   defp command(handle, name, id, opts) do
     with {:ok, view} <- guarded_view(handle),
          false <- RunView.frozen?(view) do
@@ -504,11 +914,14 @@ defmodule Domovoy.Composer.Runs do
   end
 
   @spec submit(handle :: Ref.t(), name :: CoreRuns.command(), opts :: keyword()) ::
-          :ok | {:error, {:refused, atom() | nil}}
+          {:ok, receipt()} | {:error, {:refused, atom() | nil}}
   defp submit(handle, name, opts) do
     case CoreBridge.guarded(:workflow, fn -> CoreRuns.command(handle, name, opts) end) do
-      {:ok, _receipt} -> :ok
-      {:error, [%Issue{core_id: core_id} | _rest]} -> {:error, {:refused, core_id}}
+      {:ok, receipt} ->
+        {:ok, %{operation_id: receipt.operation_id, accepted_seq: receipt.accepted_seq}}
+
+      {:error, [%Issue{core_id: core_id} | _rest]} ->
+        {:error, {:refused, core_id}}
     end
   end
 

@@ -2,6 +2,9 @@ import Config
 
 config :domovoy, composer_runs_enabled: true
 
+# How often run summaries are swept; test leaves it unset and sweeps by hand.
+config :domovoy, run_summary_sweep_ms: 30_000
+
 # Password and port are resolved by config/runtime.exs only at runtime.
 # Configure your database
 config :domovoy, Domovoy.Repo,

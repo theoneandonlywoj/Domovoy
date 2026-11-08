@@ -3,6 +3,9 @@ defmodule Domovoy.Composer.Run do
   One started run of a draft: the snapshot of its document, and the ids Core knows it
   by. It holds no status and no input value, because Core's committed view stays the
   only authority. A draft's deletion leaves the row, with a nil `draft_id`.
+  `source_run_id` names the run of the same draft whose page started this one, if any,
+  and `input_set_id` the draft's input set it was started with, nil once that is deleted.
+  Its `summary`, when loaded, is a derived and possibly stale status for history only.
   """
 
   use Ecto.Schema
@@ -21,6 +24,10 @@ defmodule Domovoy.Composer.Run do
     field :document, :map
     field :fingerprint, :string
     field :start_command_id, :string
+    field :source_run_id, :binary_id
+    field :input_set_id, :binary_id
+
+    has_one :summary, Domovoy.Composer.RunSummary, foreign_key: :run_id
 
     timestamps()
   end
@@ -33,5 +40,7 @@ defmodule Domovoy.Composer.Run do
     run
     |> change()
     |> foreign_key_constraint(:draft_id)
+    |> foreign_key_constraint(:source_run_id)
+    |> foreign_key_constraint(:input_set_id)
   end
 end

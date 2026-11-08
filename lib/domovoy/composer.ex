@@ -14,6 +14,8 @@ defmodule Domovoy.Composer do
   alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Export
   alias Domovoy.Composer.History
+  alias Domovoy.Composer.InputSet
+  alias Domovoy.Composer.InputSets
   alias Domovoy.Composer.LiteralPolicy
   alias Domovoy.Composer.Operations
   alias Domovoy.Composer.Projection
@@ -45,23 +47,39 @@ defmodule Domovoy.Composer do
   defdelegate issue_rows(document, issues, stage), to: Projection
   defdelegate literal_editor(type), to: LiteralPolicy, as: :editor
   defdelegate nodes(document, stage), to: Document
+  defdelegate all_nodes(document), to: Document
+  defdelegate evidence(decision), to: Document
+  defdelegate outputs(document), to: Document
   defdelegate runs_enabled?(), to: Runs, as: :enabled?
   defdelegate start_run(attrs), to: Runs, as: :start
   defdelegate get_run(draft_id, run_id), to: Runs, as: :get
+  defdelegate get_run_by_id(run_id), to: Runs, as: :get_by_id
   defdelegate open_run(row), to: Runs, as: :open
   defdelegate run_view(handle), to: Runs, as: :view
-  defdelegate recent_runs(draft_id, limit \\ 10), to: Runs, as: :recent
-  defdelegate latest_unfinished_run(draft_id), to: Runs, as: :latest_unfinished
+  defdelegate run_page(filters, cursor, limit), to: Runs, as: :page
+  defdelegate attention_runs(draft_id, limit), to: Runs, as: :attention
+  defdelegate summarize_run(run_id, view), to: Runs, as: :summarize
+  defdelegate refresh_run_summaries(run_ids), to: Runs, as: :refresh_summaries
   defdelegate run_draft_changed?(row, draft), to: Runs, as: :draft_changed?
   defdelegate subscribe_run(handle, after_cursor), to: Runs, as: :subscribe
   defdelegate ack_run_event(subscription, cursor), to: Runs, as: :ack
   defdelegate unsubscribe_run(subscription), to: Runs, as: :unsubscribe
   defdelegate resync_run(handle), to: Runs, as: :resync
   defdelegate encode_run_event(envelope), to: Runs, as: :encode_event
-  defdelegate cancel_run(handle), to: Runs, as: :cancel
+  defdelegate cancel_run(handle, command_id), to: Runs, as: :cancel
+  defdelegate stop_run(handle, command_id), to: Runs, as: :stop
+  defdelegate resume_run(handle, command_id), to: Runs, as: :resume
+  defdelegate pause_run(handle, command_id), to: Runs, as: :pause
+  defdelegate unpause_run(handle, command_id), to: Runs, as: :unpause
+  defdelegate reconcile_run(handle, command_id, uncertainty_id), to: Runs, as: :reconcile
   defdelegate activate_run(handle), to: Runs, as: :activate
   defdelegate decide_run(handle, occurrence, choice, inputs), to: Runs, as: :decide
   defdelegate run_record(handle, node, generation, seq), to: Runs, as: :record
+  defdelegate list_input_sets(draft_id), to: InputSets, as: :list
+  defdelegate save_input_set(draft_id, name, fields, params, opt_ins), to: InputSets, as: :save
+  defdelegate fetch_input_set(draft_id, id), to: InputSets, as: :fetch
+  defdelegate delete_input_set(draft_id, id), to: InputSets, as: :delete
+  defdelegate load_input_set(set, fields), to: InputSets, as: :load
 
   @doc """
   Decides Definition valid, through `Domovoy.Composer.Export.validate/2`.
@@ -139,7 +157,7 @@ defmodule Domovoy.Composer do
   def save_title(%Draft{} = draft, title), do: save(draft, %{title: title})
 
   @doc """
-  Deletes a draft, leaving its runs' rows with a nil draft id. A draft with an
+  Deletes a draft and its input sets, leaving its runs' rows with a nil draft id. A draft with an
   unfinished run gives `:runs_unfinished`, because such a run could then no longer be
   reached.
 
@@ -167,6 +185,7 @@ defmodule Domovoy.Composer do
 
     with id when is_binary(id) <- Repo.one(locked, log: false),
          true <- run_ids(id) == checked,
+         {_count, _sets} <- delete_input_sets(id),
          {:ok, deleted} <- Repo.delete(draft, log: false, stale_error_field: :id) do
       deleted
     else
@@ -174,6 +193,13 @@ defmodule Domovoy.Composer do
       _gone -> Repo.rollback(:gone)
     end
   end
+
+  # The database cascades this too. Deleting the sets first keeps a run row written in
+  # this same transaction from failing its input set's foreign key, which Postgres
+  # checks again when the draft's cascade updates that row before the set's does.
+  @spec delete_input_sets(draft_id :: String.t()) :: {non_neg_integer(), nil}
+  defp delete_input_sets(draft_id),
+    do: Repo.delete_all(from(set in InputSet, where: set.draft_id == ^draft_id), log: false)
 
   @spec run_ids(draft_id :: String.t()) :: MapSet.t(String.t())
   defp run_ids(draft_id) do
