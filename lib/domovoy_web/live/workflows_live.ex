@@ -1,6 +1,7 @@
 defmodule DomovoyWeb.WorkflowsLive do
   @moduledoc """
-  Lists the saved drafts, creates one and deletes one.
+  Lists the saved drafts, creates one and deletes one. With runs on, each row's New run
+  opens that draft with its launcher, and Runs leads to every run.
   """
 
   use DomovoyWeb, :live_view
@@ -16,6 +17,7 @@ defmodule DomovoyWeb.WorkflowsLive do
      socket
      |> assign(:page_title, "Composer")
      |> assign(:plugins, Catalog.plugins())
+     |> assign(:runs_enabled?, Composer.runs_enabled?())
      |> assign(:form, draft_form(""))
      |> stream(:drafts, Composer.list_drafts())}
   end
@@ -25,11 +27,21 @@ defmodule DomovoyWeb.WorkflowsLive do
     ~H"""
     <Layouts.app flash={@flash}>
       <div class="space-y-8">
-        <header class="space-y-1">
-          <h1 class="text-2xl font-semibold tracking-tight">Workflow drafts</h1>
-          <p class="text-sm text-muted">
-            Compose definitions for Core 0.3.4.
-          </p>
+        <header class="flex flex-wrap items-end justify-between gap-4">
+          <div class="space-y-1">
+            <h1 class="text-2xl font-semibold tracking-tight">Workflow drafts</h1>
+            <p class="text-sm text-muted">
+              Compose definitions for Core 0.3.4.
+            </p>
+          </div>
+          <.link
+            :if={@runs_enabled?}
+            id="runs-link"
+            navigate={~p"/composer/runs"}
+            class="soft-btn px-3 py-1.5 text-sm"
+          >
+            <.icon name="hero-queue-list" class="size-4" /> Runs
+          </.link>
         </header>
 
         <.form for={@form} id="draft-form" phx-submit="create" class="flex items-start gap-2">
@@ -62,17 +74,27 @@ defmodule DomovoyWeb.WorkflowsLive do
             >
               {draft.title}
             </.link>
-            <button
-              id={"delete-#{draft.id}"}
-              type="button"
-              phx-click="delete"
-              phx-value-id={draft.id}
-              data-confirm="Delete this draft?"
-              aria-label={"Delete #{draft.title}"}
-              class="soft-btn soft-btn-quiet p-1 hover:text-error"
-            >
-              <.icon name="hero-trash" class="size-4" />
-            </button>
+            <div class="flex shrink-0 items-center gap-2">
+              <.link
+                :if={@runs_enabled?}
+                id={"new-run-#{draft.id}"}
+                navigate={~p"/composer/#{draft.id}?#{[launch: 1]}"}
+                class="soft-btn px-3 py-1.5 text-sm"
+              >
+                New run
+              </.link>
+              <button
+                id={"delete-#{draft.id}"}
+                type="button"
+                phx-click="delete"
+                phx-value-id={draft.id}
+                data-confirm="Delete this draft?"
+                aria-label={"Delete #{draft.title}"}
+                class="soft-btn soft-btn-quiet p-1 hover:text-error"
+              >
+                <.icon name="hero-trash" class="size-4" />
+              </button>
+            </div>
           </li>
         </ul>
 

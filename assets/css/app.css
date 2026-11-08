@@ -324,6 +324,51 @@
   }
 }
 
+/* Composer workspace. The canvas fills it in every mode, and panels float over it, so
+   opening one never resizes the canvas. */
+#stage-canvas { position: absolute; inset: 0; }
+.workspace-panel { transition: opacity 150ms ease-out, translate 150ms ease-out; }
+@starting-style {
+  .workspace-panel { opacity: 0; translate: 0 -0.25rem; }
+}
+
+/* Below md one surface fills the workspace: the canvas, or a panel covering it. */
+@media (max-width: 767px) {
+  #workspace[data-surface="outline"] #outline-panel,
+  #workspace[data-surface="details"] #inspector-panel,
+  #workspace[data-surface="launcher"] #launcher-panel,
+  #workspace[data-surface="results"] #results-panel {
+    inset: 0;
+    width: auto;
+    max-width: none;
+    max-height: none;
+  }
+  #workspace:not([data-surface="outline"]) #outline-panel,
+  #workspace:not([data-surface="details"]) #inspector-panel,
+  #workspace:not([data-surface="launcher"]) #launcher-panel,
+  #workspace:not([data-surface="results"]) #results-panel,
+  #workspace:not([data-surface="canvas"]) #composer-tools { display: none; }
+}
+
+/* A pinned inspector docks beside the canvas, which gives up that width on its right, so
+   the world's transform stays put. The hook sets `data-pinned` and `--pin-width`. */
+@media (min-width: 768px) {
+  #workspace[data-pinned] #stage-canvas { right: calc(var(--pin-width) + 0.75rem); }
+  #workspace[data-pinned] #inspector-panel {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: var(--pin-width);
+    max-width: none;
+    max-height: none;
+  }
+}
+#workspace:not([data-pinned]) #inspector-resize { display: none; }
+
+/* Canvas only: the headers, notices and panels give way to the canvas and its status. */
+#composer[data-canvas-only] > .soft-panel,
+#composer[data-canvas-only] .workspace-panel { display: none; }
+
 /* Composer canvas */
 #stage-canvas { cursor: grab; }
 #stage-canvas[data-gesture] { cursor: grabbing; }
@@ -401,7 +446,8 @@ article[data-run-status="interrupted"],
 article[data-run-status="cancelled"],
 article[data-run-status="skipped"],
 article[data-run-status="unknown"] { outline: 1px dashed var(--color-muted); }
-[data-read-only] article:not([data-run-status]) header .font-semibold { color: var(--color-muted); }
+[data-read-only] article:not([data-run-status]) header .font-semibold,
+article[data-run-status="not_executed"] header .font-semibold { color: var(--color-muted); }
 
 .run-pill {
   display: inline-flex;
@@ -439,7 +485,7 @@ article[data-run-status="unknown"] { outline: 1px dashed var(--color-muted); }
 [data-read-only] .socket-out:hover, [data-read-only] .socket[data-after-source]:hover { transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .soft-btn, .soft-grip, .soft-link, .socket { transition: none; }
+  .soft-btn, .soft-grip, .soft-link, .socket, .workspace-panel { transition: none; }
   .run-spin, article[data-run-status] { animation: none; }
 }
 

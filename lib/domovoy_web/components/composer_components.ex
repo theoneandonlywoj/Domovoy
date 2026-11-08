@@ -55,6 +55,9 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :issue_count, :integer, required: true
   attr :runs_enabled?, :boolean, default: false
   attr :latest_run, :string, default: nil, doc: "the id of the newest unfinished run"
+  attr :outline_open?, :boolean, default: false
+  attr :surface, :string, default: "canvas"
+  attr :launcher?, :boolean, default: false, doc: "a launcher is open, so it gets a surface"
 
   def composer_header(assigns) do
     assigns = assign(assigns, primary: @primary, secondary: @secondary)
@@ -62,8 +65,10 @@ defmodule DomovoyWeb.ComposerComponents do
     ~H"""
     <header
       id="composer-header"
+      data-modal-background
       class="soft-panel flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2"
     >
+      <.outline_toggle open?={@outline_open?} label="Outline" />
       <nav id="breadcrumb" aria-label="Breadcrumb" class="min-w-0 text-sm">
         <.link
           navigate={~p"/composer"}
@@ -95,7 +100,7 @@ defmodule DomovoyWeb.ComposerComponents do
         Core 0.3.4
       </span>
 
-      <div class="ml-auto flex items-center gap-2">
+      <div class="ml-auto flex flex-wrap items-center gap-2">
         <span
           :if={@validity}
           id="definition-valid"
@@ -122,6 +127,7 @@ defmodule DomovoyWeb.ComposerComponents do
           <.icon name="hero-adjustments-horizontal" class="size-4" /> Issues / Tools
           <span id="tools-issue-count">{@issue_count}</span>
         </button>
+        <.canvas_only_toggle />
         <button id="undo" type="button" phx-click="undo" disabled={not @undo?} class={@secondary}>
           Undo
         </button>
@@ -157,10 +163,52 @@ defmodule DomovoyWeb.ComposerComponents do
           phx-click="open_start"
           class={@primary}
         >
-          Start
+          New run
         </button>
       </div>
+      <.surface_switcher surface={@surface} launcher?={@launcher?} />
     </header>
+    """
+  end
+
+  @doc """
+  The header button that opens the outline panel, or closes it when open.
+  """
+  attr :open?, :boolean, required: true
+  attr :label, :string, required: true
+
+  def outline_toggle(assigns) do
+    assigns = assign(assigns, secondary: @secondary)
+
+    ~H"""
+    <button
+      id="open-outline"
+      type="button"
+      phx-click={if @open?, do: "close_panel", else: "open_outline"}
+      aria-expanded={to_string(@open?)}
+      aria-controls="outline-panel"
+      class={[@secondary, "max-md:hidden"]}
+    >
+      <.icon name="hero-bars-3" class="size-4" /> {@label}
+    </button>
+    """
+  end
+
+  @doc """
+  The header button that hides everything but the canvas and a one-line status.
+  """
+  def canvas_only_toggle(assigns) do
+    assigns = assign(assigns, secondary: @secondary)
+
+    ~H"""
+    <button
+      id="canvas-only"
+      type="button"
+      phx-click="toggle_canvas_only"
+      class={@secondary}
+    >
+      <.icon name="hero-arrows-pointing-out" class="size-4" /> Canvas only
+    </button>
     """
   end
 
@@ -222,6 +270,136 @@ defmodule DomovoyWeb.ComposerComponents do
   end
 
   @doc """
+  A panel floating over the canvas, so opening it never changes the canvas's size. It stays
+  rendered while closed, hidden, so its forms and streams keep their state; with `close`
+  set, its header holds a Close button pushing that event.
+  """
+  attr :id, :string, required: true
+  attr :side, :string, values: ~w(left right), required: true
+  attr :label, :string, required: true
+  attr :open?, :boolean, required: true
+  attr :close, :string, default: nil, doc: "the event the Close button pushes"
+
+  attr :pinnable?, :boolean,
+    default: false,
+    doc: "adds the Pin button and the dock's resize handle, which the canvas hook drives"
+
+  slot :inner_block, required: true
+
+  def panel(assigns) do
+    assigns = assign(assigns, quiet: @quiet)
+
+    ~H"""
+    <aside
+      id={@id}
+      hidden={!@open?}
+      data-canvas-control
+      aria-label={@label}
+      class={[
+        "soft-panel workspace-panel absolute top-3 z-30 max-h-[calc(100%-1.5rem)] w-96 max-w-[calc(100%-1.5rem)] overflow-y-auto",
+        if(@side == "left", do: "left-3", else: "right-3")
+      ]}
+    >
+      <div
+        :if={@close || @pinnable?}
+        class="flex items-center gap-2 border-b border-base-300 px-3 py-2"
+      >
+        <div
+          :if={@pinnable?}
+          id="inspector-resize"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="Inspector width"
+          aria-valuemin="320"
+          aria-valuemax="440"
+          data-canvas-control
+          class="cursor-col-resize rounded p-0.5 text-muted hover:text-base-content"
+        >
+          <.icon name="hero-arrows-right-left" class="size-4" />
+        </div>
+        <h2 class="flex-1 text-[15px] font-semibold">{@label}</h2>
+        <button
+          :if={@pinnable?}
+          id="pin-inspector"
+          type="button"
+          aria-pressed="false"
+          aria-label="Pin the inspector beside the canvas"
+          class={[@quiet, "text-sm max-md:hidden"]}
+        >
+          Pin
+        </button>
+        <button
+          :if={@close}
+          id={"close-#{@id}"}
+          type="button"
+          phx-click={@close}
+          class={[@quiet, "text-sm"]}
+        >
+          Close
+        </button>
+      </div>
+      {render_slot(@inner_block)}
+    </aside>
+    """
+  end
+
+  @doc """
+  Below the `md` breakpoint, the buttons that pick the one surface shown full-screen: the
+  canvas, the outline, the details, a run's results, or an open New run launcher. With
+  `details_patch` set, Details opens that path instead, so it always has something to show.
+  """
+  attr :surface, :string, required: true
+  attr :labels, :list, default: ~w(Canvas Outline Inspector)
+  attr :details_patch, :string, default: nil
+  attr :results?, :boolean, default: false, doc: "a run page, which has a Results surface"
+  attr :launcher?, :boolean, default: false
+
+  def surface_switcher(assigns) do
+    [canvas, outline, details] = assigns.labels
+
+    assigns =
+      assign(
+        assigns,
+        :surfaces,
+        [{"canvas", canvas}, {"outline", outline}, {"details", details}] ++
+          if(assigns.results?, do: [{"results", "Results"}], else: []) ++
+          if(assigns.launcher?, do: [{"launcher", "New run"}], else: [])
+      )
+
+    ~H"""
+    <div
+      id="surface-switcher"
+      role="group"
+      aria-label="Shown surface"
+      class="flex basis-full gap-1 md:hidden"
+    >
+      <%= for {surface, label} <- @surfaces do %>
+        <.link
+          :if={surface == "details" && @details_patch}
+          id="surface-details"
+          patch={@details_patch}
+          class="soft-btn flex-1 px-2 py-1 text-center text-sm"
+        >
+          {label}
+        </.link>
+        <button
+          :if={surface != "details" || !@details_patch}
+          id={"surface-#{surface}"}
+          type="button"
+          phx-click="set_surface"
+          phx-value-surface={surface}
+          aria-pressed={to_string(@surface == surface)}
+          class="soft-btn flex-1 px-2 py-1 text-sm"
+        >
+          {label}
+        </button>
+      <% end %>
+    </div>
+    """
+  end
+
+  @doc """
   The composer's path: a draft at a level, and in a run when `run_id` is set.
   """
   @spec composer_path(
@@ -229,12 +407,54 @@ defmodule DomovoyWeb.ComposerComponents do
           stage :: String.t() | nil,
           run_id :: String.t() | nil
         ) :: String.t()
-  def composer_path(draft_id, nil, nil), do: ~p"/composer/#{draft_id}"
-  def composer_path(draft_id, nil, run_id), do: ~p"/composer/#{draft_id}?#{[run: run_id]}"
-  def composer_path(draft_id, stage, nil), do: ~p"/composer/#{draft_id}/stages/#{stage}"
+  def composer_path(draft_id, stage, run_id), do: composer_path(draft_id, stage, run_id, [])
 
-  def composer_path(draft_id, stage, run_id),
-    do: ~p"/composer/#{draft_id}/stages/#{stage}?#{[run: run_id]}"
+  @doc """
+  The composer's path with more query params after `run`, such as `node`, `gen` and
+  `scope`; a nil value is left out.
+  """
+  @spec composer_path(
+          draft_id :: String.t(),
+          stage :: String.t() | nil,
+          run_id :: String.t() | nil,
+          query :: keyword()
+        ) :: String.t()
+  def composer_path(draft_id, stage, run_id, query) do
+    params = for {key, value} <- [run: run_id] ++ query, not is_nil(value), do: {key, value}
+
+    case {stage, params} do
+      {nil, []} -> ~p"/composer/#{draft_id}"
+      {nil, params} -> ~p"/composer/#{draft_id}?#{params}"
+      {stage, []} -> ~p"/composer/#{draft_id}/stages/#{stage}"
+      {stage, params} -> ~p"/composer/#{draft_id}/stages/#{stage}?#{params}"
+    end
+  end
+
+  @doc """
+  The link to a run: through its draft when it has one, else the run-only route. `query`
+  carries `node`, `gen` and `scope`; a nil value is left out. With a draft, a nil
+  `run_id` is the draft itself.
+  """
+  @spec run_link(
+          draft_id :: String.t() | nil,
+          stage :: String.t() | nil,
+          run_id :: String.t() | nil,
+          query :: keyword()
+        ) :: String.t()
+  def run_link(draft_id, stage, run_id, query \\ [])
+
+  def run_link(nil, stage, run_id, query) do
+    params = for {key, value} <- query, not is_nil(value), do: {key, value}
+
+    case {stage, params} do
+      {nil, []} -> ~p"/composer/runs/#{run_id}"
+      {nil, params} -> ~p"/composer/runs/#{run_id}?#{params}"
+      {stage, []} -> ~p"/composer/runs/#{run_id}/stages/#{stage}"
+      {stage, params} -> ~p"/composer/runs/#{run_id}/stages/#{stage}?#{params}"
+    end
+  end
+
+  def run_link(draft_id, stage, run_id, query), do: composer_path(draft_id, stage, run_id, query)
 
   defp adapters(%{connect: nil}), do: []
 
@@ -243,16 +463,19 @@ defmodule DomovoyWeb.ComposerComponents do
   end
 
   @doc """
-  Engine name and title.
+  Engine name, title, and the nodes a run's Results show first as the workflow's
+  outputs.
   """
   attr :draft, :map, required: true
-  attr :name, :string, required: true
+  attr :document, :map, required: true
 
   def workflow_settings(assigns) do
+    name = assigns.document["name"]
+
     assigns =
       assign(assigns,
         section_title: @section_title,
-        name_form: to_form(%{"value" => assigns.name}, as: :workflow_name, id: "workflow-name"),
+        name_form: to_form(%{"value" => name}, as: :workflow_name, id: "workflow-name"),
         title_form: to_form(%{"value" => assigns.draft.title}, as: :title, id: "workflow-title")
       )
 
@@ -275,7 +498,57 @@ defmodule DomovoyWeb.ComposerComponents do
           phx-blur="set_workflow_name"
         />
       </.form>
+      <.form
+        :if={Composer.all_nodes(@document) != []}
+        for={%{}}
+        as={:outputs}
+        id="outputs-form"
+        phx-change="put_outputs"
+        phx-auto-recover="ignore"
+      >
+        <.ref_checkboxes
+          name="outputs"
+          legend="Workflow outputs, shown first in a run's results"
+          document={@document}
+          checked={Composer.outputs(@document)}
+        />
+      </.form>
     </section>
+    """
+  end
+
+  # One checkbox per node, grouped by stage, named `<name>[refs][stage][node]`.
+  attr :name, :string, required: true
+  attr :legend, :string, required: true
+  attr :document, :map, required: true
+  attr :checked, :list, required: true
+
+  defp ref_checkboxes(assigns) do
+    groups =
+      assigns.document
+      |> Composer.all_nodes()
+      |> Enum.map(fn {stage, node, _definition} -> {stage, node} end)
+      |> Enum.sort()
+      |> Enum.chunk_by(&elem(&1, 0))
+      |> Enum.map(fn [{stage, _node} | _rest] = refs -> {stage, Enum.map(refs, &elem(&1, 1))} end)
+
+    assigns = assign(assigns, groups: groups)
+
+    ~H"""
+    <fieldset class="space-y-1">
+      <legend class="text-xs text-muted">{@legend}</legend>
+      <div :for={{stage, nodes} <- @groups}>
+        <p class="text-xs text-muted">{stage}</p>
+        <.input
+          :for={node <- nodes}
+          type="checkbox"
+          id={"#{@name}-#{stage}-#{node}"}
+          name={"#{@name}[refs][#{stage}][#{node}]"}
+          value={%{"stage" => stage, "node" => node} in @checked}
+          label={node}
+        />
+      </div>
+    </fieldset>
     """
   end
 
@@ -611,6 +884,7 @@ defmodule DomovoyWeb.ComposerComponents do
       level={canvas_level(@stage)}
       edges={@edges}
       read_only?={@read_only?}
+      selected={@selected}
     >
       <:empty :if={@cards == []}>
         This stage has no nodes yet. Pick a runner on the left to add one.
@@ -638,6 +912,7 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :run_statuses, :map, default: %{}
   attr :read_only?, :boolean, default: false
   attr :run_id, :string, default: nil
+  attr :scope, :integer, default: nil, doc: "the run's graph scope, which Open keeps"
 
   def workflow_canvas(assigns) do
     ~H"""
@@ -646,6 +921,7 @@ defmodule DomovoyWeb.ComposerComponents do
       level={canvas_level(nil)}
       edges={@edges}
       read_only?={@read_only?}
+      selected={@selected}
     >
       <:empty :if={@cards == []}>
         This draft has no vertices yet. Add a stage on the left.
@@ -658,6 +934,7 @@ defmodule DomovoyWeb.ComposerComponents do
         draft_id={@draft_id}
         run_status={@run_statuses[card.name]}
         run_id={@run_id}
+        scope={@scope}
       />
     </.canvas_frame>
     """
@@ -667,17 +944,21 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :level, :string, required: true
   attr :edges, :list, required: true
   attr :read_only?, :boolean, required: true
+  attr :selected, :string, default: nil
   slot :empty
   slot :inner_block, required: true
 
   defp canvas_frame(assigns) do
+    assigns = assign(assigns, :quiet, @quiet)
+
     ~H"""
     <section
       id="stage-canvas"
       tabindex="-1"
       aria-label={@label}
       data-read-only={@read_only?}
-      class="soft-tray relative touch-none select-none overflow-hidden"
+      data-selected={@selected}
+      class="soft-tray touch-none select-none overflow-hidden"
     >
       <p :if={@empty != []} id="canvas-empty" class="p-8 text-sm text-muted">
         {render_slot(@empty)}
@@ -698,7 +979,7 @@ defmodule DomovoyWeb.ComposerComponents do
         role="group"
         aria-label="Canvas zoom"
         data-canvas-control
-        class="soft-panel absolute bottom-3 right-3 z-20 flex items-center gap-1 p-1.5 text-xs"
+        class="soft-panel absolute bottom-3 right-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-1 p-1.5 text-xs"
       >
         <input
           id="canvas-zoom-slider"
@@ -708,7 +989,7 @@ defmodule DomovoyWeb.ComposerComponents do
           step="5"
           value="100"
           aria-label="Canvas zoom level"
-          aria-valuetext="100%"
+          aria-valuetext="Fit · 100%"
           phx-update="ignore"
           class="ml-1 h-8 w-36 cursor-pointer accent-[var(--color-primary)]"
         />
@@ -716,15 +997,21 @@ defmodule DomovoyWeb.ComposerComponents do
           id="canvas-zoom-percent"
           aria-label="Canvas zoom percentage"
           aria-live="polite"
-          class="min-w-12 text-center tabular-nums"
-        >100%</output>
+          class="min-w-20 text-center tabular-nums"
+        >Fit · 100%</output>
+        <button id="canvas-fit" type="button" class={[@quiet, "h-8 px-2"]}>
+          {if @level == "workflow", do: "Fit workflow", else: "Fit stage"}
+        </button>
         <button
-          id="canvas-zoom-reset"
+          id="canvas-fit-selection"
           type="button"
-          aria-label="Reset canvas view"
-          class="soft-btn ml-1 cursor-pointer h-8 px-3"
+          disabled={is_nil(@selected)}
+          class={[@quiet, "h-8 px-2"]}
         >
-          Reset
+          Fit selection
+        </button>
+        <button id="canvas-actual-size" type="button" class={[@quiet, "h-8 px-2"]}>
+          Actual size
         </button>
       </div>
       <p
@@ -743,6 +1030,7 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :draft_id, :string, required: true
   attr :run_status, :string, default: nil
   attr :run_id, :string, default: nil
+  attr :scope, :integer, default: nil
 
   defp vertex_card(assigns) do
     assigns = assign(assigns, quiet: @quiet)
@@ -820,7 +1108,7 @@ defmodule DomovoyWeb.ComposerComponents do
         <.link
           id={"#{@card.dom_id}-open"}
           data-card-open
-          patch={composer_path(@draft_id, @card.name, @run_id)}
+          patch={run_link(@draft_id, @card.name, @run_id, scope: @scope)}
           class={@quiet}
         >
           Open
@@ -887,6 +1175,7 @@ defmodule DomovoyWeb.ComposerComponents do
   def run_status_word("interrupted"), do: "Interrupted"
   def run_status_word("cancelled"), do: "Cancelled"
   def run_status_word("skipped"), do: "Skipped"
+  def run_status_word("not_executed"), do: "Not executed in this generation"
   def run_status_word(_unknown), do: "Unknown"
 
   defp kind_label("stage"), do: "Stage"
@@ -1343,13 +1632,13 @@ defmodule DomovoyWeb.ComposerComponents do
     assigns = assign(assigns, primary: @primary, secondary: @secondary)
 
     ~H"""
-    <div class="soft-scrim fixed inset-0 z-40 flex items-center justify-center">
+    <.modal_scrim focus_id="confirm-replace-focus">
       <div
         id="confirm-replace-literal"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-replace-title"
-        phx-window-keydown={cancel_confirm()}
+        phx-window-keydown="cancel_replace_literal"
         phx-key="escape"
         class="soft-panel w-96 space-y-3 p-5"
       >
@@ -1364,7 +1653,7 @@ defmodule DomovoyWeb.ComposerComponents do
             id="cancel-replace-literal"
             type="button"
             phx-mounted={JS.focus()}
-            phx-click={cancel_confirm()}
+            phx-click="cancel_replace_literal"
             class={@secondary}
           >
             Cancel
@@ -1372,18 +1661,38 @@ defmodule DomovoyWeb.ComposerComponents do
           <button
             id="confirm-replace-literal-button"
             type="button"
-            phx-click={JS.push("confirm_replace_literal") |> JS.pop_focus()}
+            phx-click="confirm_replace_literal"
             class={@primary}
           >
             Replace
           </button>
         </div>
       </div>
-    </div>
+    </.modal_scrim>
     """
   end
 
-  defp cancel_confirm, do: JS.push("cancel_replace_literal") |> JS.pop_focus()
+  @doc """
+  The scrim behind a modal dialog. While it is mounted, Tab stays inside it and everything
+  marked `data-modal-background` is inert. However the dialog unmounts, a close or a patch,
+  the background comes back and focus returns to the control that pushed it.
+  """
+  attr :focus_id, :string, required: true
+  slot :inner_block, required: true
+
+  def modal_scrim(assigns) do
+    ~H"""
+    <div
+      class="soft-scrim fixed inset-0 z-40 flex items-center justify-center"
+      phx-mounted={JS.set_attribute({"inert", ""}, to: "[data-modal-background]")}
+      phx-remove={JS.remove_attribute("inert", to: "[data-modal-background]") |> JS.pop_focus()}
+    >
+      <.focus_wrap id={@focus_id}>
+        {render_slot(@inner_block)}
+      </.focus_wrap>
+    </div>
+    """
+  end
 
   @doc """
   What clearing a field would break, such as an Any field losing its concrete sibling.
@@ -1473,6 +1782,7 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :deciders, :list, required: true
   attr :types, :list, required: true
   attr :choice_form, :any, required: true
+  attr :document, :map, required: true
 
   def vertex_inspector(%{card: nil} = assigns) do
     ~H"""
@@ -1538,6 +1848,7 @@ defmodule DomovoyWeb.ComposerComponents do
         deciders={@deciders}
         types={@types}
         choice_form={@choice_form}
+        document={@document}
       />
 
       <div class="flex items-center gap-2">
@@ -1570,6 +1881,7 @@ defmodule DomovoyWeb.ComposerComponents do
   attr :deciders, :list, required: true
   attr :types, :list, required: true
   attr :choice_form, :any, required: true
+  attr :document, :map, required: true
 
   defp decision_inspector(assigns) do
     card = assigns.card
@@ -1610,6 +1922,23 @@ defmodule DomovoyWeb.ComposerComponents do
         options={@card.node_names}
       />
       <button id="save-decision" type="submit" class={@secondary}>Save</button>
+    </.form>
+
+    <.form
+      :if={@card.node_names != []}
+      for={%{}}
+      as={:evidence}
+      id="evidence-form"
+      phx-change="put_evidence"
+      phx-auto-recover="ignore"
+    >
+      <input type="hidden" name="evidence[decision]" value={@card.name} />
+      <.ref_checkboxes
+        name="evidence"
+        legend="Evidence, shown beside the choices in a run"
+        document={@document}
+        checked={Composer.evidence(@document["vertices"][@card.name])}
+      />
     </.form>
 
     <div id="decision-choices" class="space-y-1">

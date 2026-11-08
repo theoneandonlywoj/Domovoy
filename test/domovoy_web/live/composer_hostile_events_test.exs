@@ -21,9 +21,9 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
   alias Domovoy.Composer
   alias Domovoy.Composer.Run
   alias Domovoy.Composer.RunInputs
+  alias Domovoy.CoreCallTrace
   alias Domovoy.Examples.Definitions
   alias Domovoy.Repo
-  alias DomovoyCore.Runs, as: CoreRuns
 
   require Logger
 
@@ -107,6 +107,16 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
       {"set_next", %{"next" => value}},
       {"set_next", %{"next" => %{"stage" => value, "vertex" => "review"}}},
       {"save_decision", %{"decision" => value}},
+      {"put_evidence",
+       %{
+         "evidence" => %{"decision" => value, "refs" => %{"prepare" => %{"ask_claude" => "true"}}}
+       }},
+      {"put_evidence", %{"evidence" => %{"decision" => "review", "refs" => value}}},
+      {"put_evidence",
+       %{"evidence" => %{"decision" => "review", "refs" => %{"prepare" => value}}}},
+      {"put_outputs", %{"outputs" => value}},
+      {"put_outputs", %{"outputs" => %{"refs" => value}}},
+      {"put_outputs", %{"outputs" => %{"refs" => %{"prepare" => %{"ask_claude" => value}}}}},
       {"save_decision",
        %{
          "decision" => %{
@@ -233,35 +243,14 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
     refute has_element?(view, "#undo:not([disabled])")
   end
 
-  # The Core run calls any process makes during `fun`, a start's task included.
-  defp core_run_calls(fun) do
-    :erlang.trace_pattern({CoreRuns, :_, :_}, true, [:local])
-    :erlang.trace(:all, true, [:call, {:tracer, self()}])
-
-    try do
-      fun.()
-    after
-      :erlang.trace(:all, false, [:call])
-      :erlang.trace_pattern({CoreRuns, :_, :_}, false, [:local])
-    end
-
-    ref = :erlang.trace_delivered(:all)
-    assert_receive {:trace_delivered, :all, ^ref}
-    drain_calls([])
-  end
-
-  defp drain_calls(names) do
-    receive do
-      {:trace, _pid, :call, {CoreRuns, name, _args}} -> drain_calls([name | names])
-    after
-      0 -> names
-    end
-  end
+  # The names of the Core run calls any process makes during `fun`, a start's task included.
+  defp core_run_calls(fun), do: for({name, _args} <- CoreCallTrace.calls(fun), do: name)
 
   describe "with runs on" do
     setup :setup_runs
 
-    test "start events make no Core call with runs off, and do with them on", %{conn: conn} do
+    test "start and lifecycle events make no Core call with runs off, and start does with them on",
+         %{conn: conn} do
       draft = draft!(leak_run(), "Leak")
       Application.put_env(:domovoy, :composer_runs_enabled, false)
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
@@ -278,6 +267,10 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
             render_hook(view, "confirm_start", %{})
             render_async(view, 5_000)
             assert has_element?(view, "#composer")
+          end
+
+          for event <- ~w(stop_run resume_run open_cancel_run confirm_cancel_run recover_run) do
+            render_hook(view, event, %{})
           end
         end)
 
@@ -319,12 +312,60 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
 
         render_hook(view, "select_run_generation", %{"generation" => value})
         render_hook(view, "retry_run_record", %{"generation" => value})
+        render_hook(view, "retry_run_record", %{"node" => value, "generation" => "0"})
+        render_hook(view, "retry_run_record", %{"node" => "estimate", "generation" => value})
+        render_hook(view, "toggle_result", %{"stage" => value, "node" => "estimate"})
+        render_hook(view, "toggle_result", %{"stage" => "estimate_price", "node" => value})
+        render_hook(view, "open_results", %{"surface" => value})
+        render_hook(view, "set_surface", %{"surface" => value})
         assert has_element?(view, "#composer")
       end
+
+      # Only a node the Results panel lists is ever expanded.
+      %{socket: %{assigns: %{run: run}}} = :sys.get_state(view.pid)
+      assert run.expanded == MapSet.new()
 
       render_hook(view, "select_run_generation", %{"generation" => "7"})
       assert has_element?(view, "#run-phase", "waiting")
       assert {:ok, %{committed_phase: "waiting", generation: 0}} = Composer.run_view(handle)
+    end
+
+    test "on a run page start events open the launcher while edits stay refused", %{conn: conn} do
+      %{view: view, handle: handle} = waiting_review(conn)
+      %{socket: %{assigns: %{draft: draft}}} = :sys.get_state(view.pid)
+      before = saved_document(draft)
+
+      for value <- hostile_values() do
+        render_hook(view, "open_start", %{"start" => value})
+        render_hook(view, "submit_start", %{"start" => value})
+        render_hook(view, "confirm_start", %{"start" => value})
+        render_async(view, 5_000)
+        assert has_element?(view, "#composer")
+      end
+
+      assert has_element?(view, "#launcher-panel #start-form")
+
+      render_hook(view, "node_moved", %{
+        "node" => "review",
+        "x" => 1,
+        "y" => 2,
+        "level" => "workflow"
+      })
+
+      assert_reply(view, %{status: "rejected"})
+      render_hook(view, "add_node", %{"add_node" => %{"runner" => @ask, "name" => "fresh"}})
+      render_hook(view, "add_vertex", %{"vertex" => %{"name" => "extra", "kind" => "stage"}})
+      estimate = %{"estimate_price" => %{"estimate" => "true"}}
+
+      render_hook(view, "put_evidence", %{
+        "evidence" => %{"decision" => "review", "refs" => estimate}
+      })
+
+      render_hook(view, "put_outputs", %{"outputs" => %{"refs" => estimate}})
+
+      assert saved_document(draft) == before
+      assert Repo.all(from(row in Run, where: row.draft_id == ^draft.id)) |> length() == 1
+      assert {:ok, %{committed_phase: "waiting"}} = Composer.run_view(handle)
     end
 
     test "hostile start fields are refused by name and start nothing", %{conn: conn} do

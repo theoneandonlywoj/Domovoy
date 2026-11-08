@@ -51,7 +51,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
 
       click(view, "#issues a[href='#rel-after-detect-gone']")
       assert has_element?(view, "#composer-tools #rel-after-detect-gone")
-      assert has_element?(view, "#right-rail")
+      assert has_element?(view, "#inspector-panel")
       assert_push_event(view, "composer:focus", %{id: "rel-after-detect-gone"})
       click(view, "#validate")
       refute has_element?(view, "#definition-valid")

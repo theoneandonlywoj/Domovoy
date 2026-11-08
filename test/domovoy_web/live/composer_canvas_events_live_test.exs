@@ -50,12 +50,20 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
                  "[aria-label='Canvas zoom level'][phx-update='ignore']"
              )
 
-      assert has_element?(view, "#canvas-zoom-percent[aria-live='polite']", "100%")
+      assert has_element?(view, "#canvas-zoom-percent[aria-live='polite']", "Fit · 100%")
+      assert has_element?(view, "#canvas-zoom-slider[aria-valuetext='Fit · 100%']")
+      assert has_element?(view, "#canvas-fit[type='button']")
 
       assert has_element?(
                view,
-               "#canvas-zoom-reset[type='button'][aria-label='Reset canvas view']"
+               "#canvas-fit",
+               if(path =~ "/stages/", do: "Fit stage", else: "Fit workflow")
              )
+
+      assert has_element?(view, "#canvas-fit-selection[type='button'][disabled]")
+      assert has_element?(view, "#canvas-actual-size[type='button']")
+      refute has_element?(view, "#canvas-zoom-reset")
+      refute has_element?(view, "[phx-update='ignore'] #canvas-fit")
 
       refute has_element?(view, "#stage-world #canvas-zoom")
       refute has_element?(view, "#canvas-zoom [phx-click]")
@@ -394,7 +402,7 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
     refute has_element?(view, "#inspector-runner")
   end
 
-  test "inspector releases its column and Tools is independent on both levels", %{conn: conn} do
+  test "inspector floats over the canvas and Tools is independent on both levels", %{conn: conn} do
     draft = draft!(scenario_a())
     before = saved_document(draft)
     version = lock(draft)
@@ -404,7 +412,7 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
           {~p"/composer/#{draft.id}/stages/prepare", "node-ask_claude"}
         ] do
       {:ok, view, _html} = live(conn, path)
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
 
       assert has_element?(
                view,
@@ -413,15 +421,15 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
 
       render_click(element(view, "#open-tools"))
       assert has_element?(view, "#composer-tools #issues")
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
       render_click(element(view, "#close-tools"))
       refute has_element?(view, "#composer-tools")
       render_click(element(view, "##{node}-select"))
-      assert has_element?(view, "#right-rail #deselect-node")
+      assert has_element?(view, "#inspector-panel #deselect-node")
       render_click(element(view, "#deselect-node"))
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
       render_hook(view, "select_node", %{"node" => "gone"})
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
       refute has_element?(view, "#undo:not([disabled])")
     end
 
@@ -437,7 +445,7 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
     version = lock(draft)
     render_click(element(view, "#input-worktree_name-connect"))
     assert has_element?(view, "#composer-tools #connect-to")
-    refute has_element?(view, "#right-rail")
+    refute has_element?(view, "#inspector-panel")
     render_click(element(view, "#close-tools"))
     refute has_element?(view, "#composer-tools")
     render_click(element(view, "#open-tools"))
@@ -464,12 +472,12 @@ defmodule DomovoyWeb.ComposerCanvasEventsLiveTest do
       assert has_element?(view, "##{first}-select[aria-pressed='true']")
       render_click(element(view, "##{second}-select"))
       assert has_element?(view, "##{second}-select[aria-pressed='true']")
-      assert has_element?(view, "#right-rail")
+      assert has_element?(view, "#inspector-panel")
       render_hook(view, "deselect_node", %{})
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
       render_click(element(view, "##{second}-select"))
       render_click(element(view, "##{remove}"))
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
     end
   end
 end

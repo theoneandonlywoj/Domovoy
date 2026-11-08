@@ -20,7 +20,6 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
   alias Domovoy.Composer.RunInputs
   alias Domovoy.Examples.Definitions
   alias DomovoyCore.Events
-  alias DomovoyCore.Runs, as: CoreRuns
 
   setup :setup_runs
 
@@ -34,8 +33,7 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
   defp seed(title), do: Enum.find(Definitions.all(), &(&1.title == title)).document
 
   # A review run waiting at its decision, with the occurrence it awaits.
-  defp start_review do
-    document = seed("Cracow house price review")
+  defp start_review(document \\ seed("Cracow house price review")) do
     {:ok, values} = RunInputs.parse(document, @review_form)
     draft = draft!(document, "Review")
     {:ok, run_id} = Composer.start_run(start_attrs(draft, values))
@@ -146,23 +144,29 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
   end
 
   describe "a stopped run" do
-    defp stop(run) do
-      {:ok, _receipt} = CoreRuns.command(run.handle, :stop, command_id: "stop-test")
+    # Stop is pressed on the page, as a person would, and the page waits for it to land.
+    defp stop(conn, run) do
+      view = open_review(conn, run)
+      view |> element("#stop-run") |> render_click()
+      render_async(view, 5_000)
       await_phase(run.handle, "stopped")
+      await_delivered(entered("stopped"))
+      render(view)
+      view
     end
 
     test "shows the form with what follows, and accept finishes it with no Resume",
          %{conn: conn} do
       run = start_review()
-      stop(run)
-      view = open_review(conn, run)
+      view = stop(conn, run)
 
+      assert has_element?(view, "#resume-run")
       assert has_element?(view, "#decision-form-review")
 
       assert has_element?(
                view,
                "#decision-stopped-note",
-               "Accept finishes it now. Revise runs when you press Resume."
+               "Accept finishes it now. Revise runs when you press Resume run."
              )
 
       view |> form("#decide-accept") |> render_submit()
@@ -170,23 +174,28 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
       assert %{committed_phase: "finished", outcome: "succeeded"} =
                await_phase(run.handle, "finished")
 
+      await_delivered(entered("finished"))
+      refute has_element?(view, "#resume-run")
+
       assert facts(run.handle, "operation_accepted")
              |> Enum.map(& &1["command"])
              |> Enum.reject(&(&1 in ["stop", "decide", "start"])) == []
     end
 
-    test "revise is recorded and the run stays stopped until Resume", %{conn: conn} do
+    test "revise is recorded and the run stays stopped until Resume run", %{conn: conn} do
       run = start_review()
-      stop(run)
-      view = open_review(conn, run)
+      view = stop(conn, run)
 
       view |> form("#decide-revise", inputs: %{district: "Kazimierz"}) |> render_submit()
 
       assert has_element?(view, "#run-phase", "stopped")
+      assert has_element?(view, "#resume-run")
+      assert has_element?(view, "#run-status", "Resume run continues it from its checkpoint")
       assert [%{"choice" => "revise"}] = facts(run.handle, "decision_accepted")
       assert {:ok, %{committed_phase: "stopped"}} = Composer.run_view(run.handle)
 
-      {:ok, _receipt} = CoreRuns.command(run.handle, :resume, command_id: "resume-test")
+      view |> element("#resume-run") |> render_click()
+      render_async(view, 5_000)
       assert %{committed_phase: "waiting", generation: 1} = await_fact(run.handle, asked(1))
     end
   end
@@ -248,8 +257,99 @@ defmodule DomovoyWeb.ComposerRunDecisionLiveTest do
       view = open_review(conn, run)
       render_hook(view, "decide", %{"occurrence" => last, "choice" => "revise", "inputs" => %{}})
       assert has_element?(view, "#rejection-core-id", "rerun_limit")
+
+      assert has_element?(
+               view,
+               "#rejection-message",
+               "This run can't create another generation. Start a new run instead."
+             )
+
+      assert has_element?(view, "#new-run")
       assert {:ok, %{committed_phase: "waiting", generation: 10}} = Composer.run_view(run.handle)
     end
+  end
+
+  describe "evidence" do
+    # The review seed after an `intake` stage, which a revise doesn't rerun, with
+    # intake's `note` and estimate_price's `estimate` as review's evidence.
+    defp evidence_review do
+      refs = [
+        %{"stage" => "intake", "node" => "note"},
+        %{"stage" => "estimate_price", "node" => "estimate"}
+      ]
+
+      edit_all(seed("Cracow house price review"), [
+        {:add_stage, "intake"},
+        {:add_node, "intake", "Domovoy.LeakRunner", "note"},
+        {:set_literal, "intake", "note", "secret", "intake note", replace_binding: false},
+        {:set_literal, "intake", "note", "mode", "succeed", replace_binding: false},
+        {:set_next, "intake", "estimate_price"},
+        {:set_start, "intake"},
+        {:put_evidence, "review", refs}
+      ])
+    end
+
+    test "shows beside the choices at the pending generation, or the one it last ran at",
+         %{conn: conn} do
+      run = start_review(evidence_review())
+      view = open_review(conn, run)
+      render_async(view, 5_000)
+
+      assert has_element?(view, "#decision-evidence-estimate-generation", "Generation 0")
+      assert has_element?(view, "#decision-evidence-note-generation", "Generation 0")
+
+      view |> form("#decide-revise", inputs: %{district: "Kazimierz"}) |> render_submit()
+      await_fact(run.handle, asked(1))
+      await_delivered(asked(1))
+      render_async(view, 5_000)
+
+      assert has_element?(view, "#decision-form-review #decision-evidence")
+      assert has_element?(view, "#decision-evidence-estimate-generation", "Generation 1")
+      assert has_element?(view, "#decision-evidence-estimate #decision-evidence-estimate-output")
+      assert has_element?(view, "#decision-evidence-note-generation", "from generation 0")
+      assert has_element?(view, "#decision-evidence-note-output", "intake note")
+
+      # The estimate shown is generation 1's, which the revise changed.
+      seq = settled_seq(view, "estimate", 1)
+      assert %{output: %{text: revised}} = Composer.run_record(run.handle, "estimate", 1, seq)
+      shown = revised |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+      assert view |> element("#decision-evidence-estimate-output") |> render() =~ shown
+    end
+
+    test "is read again after a resync brings the decision back", %{conn: conn} do
+      run = start_review(evidence_review())
+      view = open_review(conn, run)
+      render_async(view, 5_000)
+      assert has_element?(view, "#decision-evidence-estimate-output")
+
+      # A status from before the decision was pending, so nothing of its evidence is held.
+      :sys.replace_state(view.pid, fn state ->
+        update_in(
+          state.socket.assigns.run,
+          &%{&1 | reads: %{}, status: %{&1.status | awaiting: []}}
+        )
+      end)
+
+      %{socket: %{assigns: %{run: %{sub: sub}}}} = :sys.get_state(view.pid)
+      send(view.pid, {:domovoy_events, sub, {:closed, %{type: :resync_required}}})
+      render_async(view, 5_000)
+
+      # Both evidence results are read again, not left to the next run event.
+      %{socket: %{assigns: %{run: %{reads: reads}}}} = :sys.get_state(view.pid)
+      assert [_estimate, _note] = Enum.filter(Map.values(reads), &(&1.state == :stored))
+      assert has_element?(view, "#run-fold-stale")
+      assert has_element?(view, "#decision-evidence-estimate-output")
+      assert has_element?(view, "#decision-evidence-note-output", "intake note")
+    end
+  end
+
+  defp settled_seq(view, node, generation) do
+    %{socket: %{assigns: %{run: %{fold: fold}}}} = :sys.get_state(view.pid)
+
+    Enum.find_value(fold.attempts, fn
+      {{^node, ^generation, _ordinal}, %{settled_seq: seq}} -> seq
+      _other -> nil
+    end)
   end
 
   test "a decision pending inside a stage links to the workflow level with it open",

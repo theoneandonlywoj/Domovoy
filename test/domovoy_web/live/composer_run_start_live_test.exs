@@ -27,8 +27,16 @@ defmodule DomovoyWeb.ComposerRunStartLiveTest do
   defp open_form(conn, draft) do
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
     render_async(view, 5_000)
-    view |> element("#start-run") |> render_click()
-    assert has_element?(view, "#start-form")
+    view |> element("#start-run", "New run") |> render_click()
+    assert has_element?(view, "#launcher-panel:not([hidden]) #start-form")
+    assert has_element?(view, "#launcher-panel[aria-label='New run']")
+
+    assert has_element?(
+             view,
+             "#launcher-source",
+             "Starts a separate run from the current saved draft"
+           )
+
     view
   end
 
@@ -152,7 +160,9 @@ defmodule DomovoyWeb.ComposerRunStartLiveTest do
     assert rows(draft) == []
   end
 
-  test "an invalid draft lists its issues and closes the form", %{conn: conn} do
+  test "an invalid draft keeps the launcher open and Fix in editor shows its issues", %{
+    conn: conn
+  } do
     document =
       edit_all(Document.new("broken"), [{:add_node, "main", "Domovoy.LeakRunner", "leak"}])
 
@@ -162,7 +172,11 @@ defmodule DomovoyWeb.ComposerRunStartLiveTest do
     view |> form("#start-form") |> render_submit()
     render_async(view, 5_000)
 
-    refute has_element?(view, "#start-form")
+    assert has_element?(view, "#launcher-panel:not([hidden]) #launcher-invalid")
+    assert has_element?(view, "#start-form")
+    assert %{socket: %{assigns: %{core_issues: [_ | _]}}} = :sys.get_state(view.pid)
+
+    view |> element("#launcher-fix") |> render_click()
     assert has_element?(view, "#composer-tools #issues li")
     assert rows(draft) == []
   end
@@ -264,6 +278,7 @@ defmodule DomovoyWeb.ComposerRunStartLiveTest do
     end
 
     refute has_element?(view, "#start-form")
+    refute has_element?(view, "#launcher-panel")
     assert rows(draft) == []
   end
 end

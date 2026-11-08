@@ -426,7 +426,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
       assert has_element?(view, ~s(#connect-ask-context[phx-click*="push_focus"]))
 
       click(view, "#connect-ask-context")
-      assert has_element?(view, ~s(#cancel-replace-literal[phx-click*="pop_focus"]))
+      assert has_element?(view, ~s([phx-remove*="pop_focus"] #confirm-replace-focus))
     end
 
     test "a cycle names exactly its nodes and suggests a Decision", %{conn: conn} do

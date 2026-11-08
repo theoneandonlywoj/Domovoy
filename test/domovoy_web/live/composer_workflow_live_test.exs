@@ -278,6 +278,26 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
       assert saved_document(draft)["vertices"]["review"]["prompt"] == "Really?"
     end
 
+    test "evidence and workflow outputs save as refs to nodes", %{view: view, draft: draft} do
+      ask = %{"stage" => "prepare", "node" => "ask_claude"}
+
+      view
+      |> form("#evidence-form", evidence: %{refs: %{prepare: %{ask_claude: "true"}}})
+      |> render_change()
+
+      assert has_element?(view, "#evidence-prepare-ask_claude[checked]")
+      assert Document.evidence(saved_document(draft)["vertices"]["review"]) == [ask]
+
+      view |> element("#open-outline") |> render_click()
+
+      view
+      |> form("#outputs-form", outputs: %{refs: %{prepare: %{ask_claude: "true"}}})
+      |> render_change()
+
+      assert Document.outputs(saved_document(draft)) == [ask]
+      assert has_element?(view, "#outputs-prepare-ask_claude[checked]")
+    end
+
     test "a choice issue seen from a stage links to the workflow", %{conn: conn, draft: draft} do
       document =
         edit_all(saved_document(draft), [
@@ -390,7 +410,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
       click(view, "#close-tools")
       render_hook(view, "clear_input", %{"node" => "worktree_directory", "field" => "worktree"})
       assert has_element?(view, "#composer-tools #clear-preview")
-      refute has_element?(view, "#right-rail")
+      refute has_element?(view, "#inspector-panel")
       click(view, "#close-tools")
       click(view, "#open-tools")
       assert has_element?(view, "#clear-preview")

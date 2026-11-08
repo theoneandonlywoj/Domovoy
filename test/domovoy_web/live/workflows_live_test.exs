@@ -19,6 +19,16 @@ defmodule DomovoyWeb.WorkflowsLiveTest do
     assert has_element?(view, "#open-#{draft.id}[href='/composer/#{draft.id}']")
   end
 
+  # With runs on the row's link shows; `composer_run_new_run_live_test.exs` covers it, since
+  # turning the flag on needs a test that isn't async.
+  test "with runs off, a row offers no New run", %{conn: conn} do
+    draft = draft!(scenario_a(), "Scenario A")
+    {:ok, view, _html} = live(conn, ~p"/composer")
+
+    assert has_element?(view, "#open-#{draft.id}")
+    refute has_element?(view, "#new-run-#{draft.id}")
+  end
+
   test "creating a draft opens it", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/composer")
     assert has_element?(view, "#create-draft[phx-disable-with]")

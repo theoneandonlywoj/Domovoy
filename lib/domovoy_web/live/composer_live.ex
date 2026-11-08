@@ -10,9 +10,13 @@ defmodule DomovoyWeb.ComposerLive do
 
   `?run=<id>` shows one run of the draft, read-only, through
   `DomovoyWeb.ComposerLive.RunEvents`, whose hooks deny every edit there.
+  `/composer/runs/<id>` opens a run by its id alone: one with a draft goes to that
+  draft's `?run=`, and one whose draft was deleted shows its snapshot with no draft.
   """
 
   use DomovoyWeb, :live_view
+
+  @surfaces ~w(canvas outline details launcher)
 
   import DomovoyWeb.ComposerComponents
   import DomovoyWeb.ComposerRunComponents
@@ -21,31 +25,38 @@ defmodule DomovoyWeb.ComposerLive do
   alias Domovoy.Composer
   alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Issue
+  alias Domovoy.Composer.RunView
   alias DomovoyWeb.ComposerLive.RunEvents
 
   @impl true
+  def mount(%{"run_id" => id} = params, _session, socket) do
+    case Composer.get_run_by_id(id) do
+      {:ok, %{draft_id: nil} = row} ->
+        {:ok,
+         socket
+         |> base_assigns(row.workflow_name || "Run")
+         |> reset_view(nil, row.document)
+         |> RunEvents.enter_retained(row)}
+
+      {:ok, row} ->
+        {:ok, push_navigate(socket, to: composer_path(row.draft_id, params["stage"], row.id))}
+
+      {:error, reason} ->
+        message =
+          if reason == :runs_disabled,
+            do: RunEvents.refusal_text(:runs_disabled),
+            else: "That run doesn't exist."
+
+        {:ok, socket |> put_flash(:error, message) |> push_navigate(to: ~p"/composer")}
+    end
+  end
+
   def mount(%{"id" => id}, _session, socket) do
     case load_draft(id) do
       {:ok, draft} ->
         {:ok,
          socket
-         |> stream_configure(:runners, dom_id: &runner_dom_id/1)
-         |> assign(
-           page_title: draft.title,
-           plugins: Catalog.plugins(),
-           types: Catalog.types(),
-           deciders: Catalog.deciders(),
-           runner_options: Enum.map(Catalog.search(%{}), &{&1.label, &1.id}),
-           stage: nil,
-           query: "",
-           picked: nil,
-           picker_source: nil,
-           node_form: node_form("", ""),
-           input_form: input_form(%{}),
-           vertex_form: vertex_form(%{}),
-           choice_form: choice_form(%{})
-         )
-         |> RunEvents.attach()
+         |> base_assigns(draft.title)
          |> reset_draft(draft)
          |> RunEvents.load_runs()}
 
@@ -54,21 +65,56 @@ defmodule DomovoyWeb.ComposerLive do
     end
   end
 
+  @spec base_assigns(socket :: Phoenix.LiveView.Socket.t(), title :: String.t()) ::
+          Phoenix.LiveView.Socket.t()
+  defp base_assigns(socket, title) do
+    socket
+    |> stream_configure(:runners, dom_id: &runner_dom_id/1)
+    |> assign(
+      page_title: title,
+      plugins: Catalog.plugins(),
+      types: Catalog.types(),
+      deciders: Catalog.deciders(),
+      runner_options: Enum.map(Catalog.search(%{}), &{&1.label, &1.id}),
+      stage: nil,
+      shown: nil,
+      panel: nil,
+      surface: "canvas",
+      canvas_only?: false,
+      query: "",
+      picked: nil,
+      picker_source: nil,
+      node_form: node_form("", ""),
+      input_form: input_form(%{}),
+      vertex_form: vertex_form(%{}),
+      choice_form: choice_form(%{})
+    )
+    |> RunEvents.attach()
+  end
+
   # `?run=` is read first, so the level below is checked against what is on screen: a
-  # run's snapshot, or the draft.
+  # run's snapshot, or the draft. A run route's run was entered at mount.
   @impl true
+  def handle_params(params, _uri, %{assigns: %{live_action: action}} = socket)
+      when action in [:run, :run_stage],
+      do: socket |> level(params) |> sync_reads()
+
   def handle_params(params, _uri, socket) do
     case RunEvents.sync_param(params, socket) do
       :none ->
-        level(socket, params)
+        socket |> level(params) |> link_params(params) |> sync_reads()
 
       {:enter, socket} ->
-        socket |> RunEvents.load_runs() |> level(params)
+        socket |> RunEvents.load_runs() |> level(params) |> link_params(params) |> sync_reads()
 
       {:leave, socket} ->
         case load_draft(socket.assigns.draft.id) do
           {:ok, latest} ->
-            socket |> back_to_draft(latest) |> RunEvents.load_runs() |> level(params)
+            socket
+            |> back_to_draft(latest)
+            |> RunEvents.load_runs()
+            |> level(params)
+            |> link_params(params)
 
           :error ->
             {:noreply, RunEvents.gone(socket)}
@@ -87,33 +133,68 @@ defmodule DomovoyWeb.ComposerLive do
   @impl true
   def handle_info(_message, socket), do: {:noreply, socket}
 
+  # A link can select a node in a run, whose result is then read.
+  @spec sync_reads(result :: {:noreply, Phoenix.LiveView.Socket.t()}) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
+  defp sync_reads({:noreply, socket}), do: {:noreply, RunEvents.sync_reads(socket)}
+
   @spec level(socket :: Phoenix.LiveView.Socket.t(), params :: map()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
-  defp level(%{assigns: %{live_action: :stage}} = socket, %{"stage" => stage} = params) do
+  defp level(%{assigns: %{live_action: action}} = socket, %{"stage" => stage} = params)
+       when action in [:stage, :run_stage] do
     if stage?(socket.assigns.document, stage) do
       # The catalog's stream isn't rendered above a stage, so entering one fills it.
       {:noreply,
        socket
        |> enter(stage)
        |> select_param(params)
+       |> RunEvents.generation_params(params)
        |> stream(:runners, Catalog.search(%{}), reset: true)}
     else
       {:noreply,
        socket
        |> put_flash(:info, "That isn't a stage of this draft.")
-       |> push_patch(to: composer_path(socket.assigns.draft.id, nil, run_id(socket)))}
+       |> push_patch(to: run_link(draft_id(socket), nil, run_id(socket)))}
     end
   end
 
-  defp level(socket, params), do: {:noreply, socket |> enter(nil) |> select_param(params)}
+  defp level(socket, params),
+    do:
+      {:noreply,
+       socket |> enter(nil) |> select_param(params) |> RunEvents.generation_params(params)}
 
-  # A link can open a level with a card selected.
+  # A link can open the draft with its New run launcher or its issues shown. `launch` acts
+  # once connected and is then patched away, so a reload doesn't open it again.
+  @spec link_params(
+          result :: {:noreply, Phoenix.LiveView.Socket.t()},
+          params :: map()
+        ) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  defp link_params({:noreply, %{assigns: %{run: nil}} = socket}, %{"launch" => "1"} = params) do
+    if connected?(socket) do
+      stage = if socket.assigns.live_action == :stage, do: socket.assigns.stage
+      path = composer_path(socket.assigns.draft.id, stage, nil)
+      {:noreply, socket |> RunEvents.open_launcher() |> push_patch(to: path, replace: true)}
+    else
+      link_params({:noreply, socket}, Map.delete(params, "launch"))
+    end
+  end
+
+  defp link_params({:noreply, %{assigns: %{run: nil}} = socket}, %{"tools" => "1"}),
+    do: {:noreply, socket |> validate() |> open_tools()}
+
+  defp link_params(result, _params), do: result
+
+  # A link can open a level with a card selected; in a run, `gen` and `scope` then pick
+  # the generations shown, as `RunEvents.generation_params/2` reads them.
   @spec select_param(socket :: Phoenix.LiveView.Socket.t(), params :: map()) ::
           Phoenix.LiveView.Socket.t()
   defp select_param(socket, %{"node" => node}) when is_binary(node) do
     %{document: document, stage: stage} = socket.assigns
     selectable = if stage, do: Composer.nodes(document, stage), else: document["vertices"]
-    if is_map_key(selectable, node), do: assign(socket, :selected, node), else: socket
+
+    if is_map_key(selectable, node),
+      do: assign(socket, selected: node, surface: "details"),
+      else: socket
   end
 
   defp select_param(socket, _params), do: socket
@@ -127,27 +208,68 @@ defmodule DomovoyWeb.ComposerLive do
       else: reset_draft(socket, latest)
   end
 
+  # The graph shows one generation's statuses once a scope is picked, else the latest.
+  @spec run_statuses(run :: map() | nil, stage :: String.t() | nil) :: map()
+  defp run_statuses(nil, _stage), do: %{}
+
+  defp run_statuses(%{scope: scope} = run, stage) when is_integer(scope),
+    do: RunView.scope_statuses(run.fold, stage, scope)
+
+  defp run_statuses(run, stage), do: RunView.card_statuses(run.fold, stage)
+
+  @spec run_active?(run :: map() | nil) :: boolean()
+  defp run_active?(%{status: %{committed_phase: phase}}), do: phase != "finished"
+  defp run_active?(_run), do: false
+
   @spec run_id(socket :: Phoenix.LiveView.Socket.t()) :: String.t() | nil
   defp run_id(%{assigns: %{run: %{id: id}}}), do: id
   defp run_id(_socket), do: nil
 
+  # Nil on a run whose draft was deleted.
+  @spec draft_id(socket :: Phoenix.LiveView.Socket.t()) :: String.t() | nil
+  defp draft_id(%{assigns: %{draft: %{id: id}}}), do: id
+  defp draft_id(_socket), do: nil
+
   @impl true
   def render(assigns) do
+    %{run: run, stage: stage, view: view} = assigns
+
     assigns =
       assign(assigns,
-        selected_card: Enum.find(assigns.view.cards, &(&1.name == assigns.selected)),
+        draft_id: assigns.draft && assigns.draft.id,
+        selected_card: Enum.find(view.cards, &(&1.name == assigns.selected)),
         issue_rows:
           Composer.issue_rows(
             assigns.document,
-            assigns.view.issues ++ assigns.core_issues,
-            assigns.stage
-          )
+            view.issues ++ assigns.core_issues,
+            stage
+          ),
+        statuses: run_statuses(run, stage),
+        scope: if(run && is_integer(run.scope), do: run.scope),
+        edges: if(run, do: RunView.wire_statuses(run.fold, stage, view), else: view.edges)
       )
 
     ~H"""
     <Layouts.app flash={@flash} variant="canvas">
-      <div id="composer" class="relative flex h-full flex-col gap-4 p-4">
-        <.run_header :if={@run} draft={@draft} stage={@stage} run={@run} />
+      <div
+        id="composer"
+        data-canvas-only={@canvas_only?}
+        class="relative flex h-full flex-col gap-4 p-4 max-md:gap-2 max-md:p-2"
+      >
+        <.run_header
+          :if={@run}
+          title={if(@draft, do: @draft.title, else: @page_title)}
+          draft_id={@draft_id}
+          stage={@stage}
+          run={@run}
+          selected={@selected}
+          outline_open?={@panel == "outline"}
+          surface={@surface}
+          runs_enabled?={@runs_enabled?}
+          launcher?={not is_nil(@start)}
+          document={@document}
+          attention_count={@attention_count}
+        />
         <.composer_header
           :if={!@run}
           draft={@draft}
@@ -158,85 +280,69 @@ defmodule DomovoyWeb.ComposerLive do
           issue_count={length(@issue_rows)}
           runs_enabled?={@runs_enabled?}
           latest_run={@latest_run}
+          outline_open?={@panel == "outline"}
+          surface={@surface}
+          launcher?={not is_nil(@start)}
         />
         <.notices conflict={@conflict} rejection={@rejection} />
 
-        <.run_workspace
-          :if={@run}
-          draft={@draft}
-          stage={@stage}
-          run={@run}
-          view={@view}
-          selected={@selected}
-          recent={@recent_runs}
-          document={@document}
-        />
-
         <div
-          :if={!@run && !@stage}
-          class={[
-            "grid min-h-0 flex-1 gap-4",
-            if(@selected_card,
-              do: "grid-cols-[19rem_minmax(0,1fr)_24rem]",
-              else: "grid-cols-[19rem_minmax(0,1fr)]"
-            )
-          ]}
+          id="workspace"
+          data-modal-background
+          data-surface={@surface}
+          class="relative min-h-0 flex-1"
         >
-          <aside id="left-rail" class="soft-panel overflow-y-auto">
-            <.start_form :if={@start} start={@start} />
-            <div class={[@start && "hidden"]}>
-              <.workflow_settings draft={@draft} name={@document["name"]} />
-              <.input_rail
-                inputs={@view.inputs}
-                connect?={false}
-                form={@input_form}
-                types={@types}
-              />
-              <.add_vertex form={@vertex_form} />
-              <.recent_runs :if={@runs_enabled?} runs={@recent_runs} draft_id={@draft.id} />
-            </div>
-          </aside>
-
           <.workflow_canvas
+            :if={!@stage}
             cards={@view.cards}
-            edges={@view.edges}
+            edges={@edges}
             selected={@selected}
-            draft_id={@draft.id}
+            draft_id={@draft_id}
+            run_statuses={@statuses}
+            read_only?={not is_nil(@run)}
+            run_id={@run && @run.id}
+            scope={@scope}
+          />
+          <.stage_canvas
+            :if={@stage}
+            cards={@view.cards}
+            sources={@view.source_nodes}
+            edges={@edges}
+            selected={@selected}
+            stage={@stage}
+            run_statuses={@statuses}
+            read_only?={not is_nil(@run)}
           />
 
-          <aside :if={@selected_card} id="right-rail" class="soft-panel overflow-y-auto">
-            <.vertex_inspector
-              card={@selected_card}
-              cards={@view.cards}
-              deciders={@deciders}
-              types={@types}
-              choice_form={@choice_form}
+          <.panel
+            id="outline-panel"
+            side="left"
+            label={if @run, do: "Steps", else: "Outline"}
+            open?={@panel == "outline"}
+            close="close_panel"
+          >
+            <.run_outline
+              :if={@run}
+              draft_id={@draft_id}
+              stage={@stage}
+              run={@run}
+              inputs={@view.inputs}
+              recent={@recent_runs}
+              attention_count={@attention_count}
+              document={@document}
             />
-          </aside>
-        </div>
-
-        <div
-          :if={!@run && @stage}
-          class={[
-            "grid min-h-0 flex-1 gap-4",
-            if(@selected_card,
-              do: "grid-cols-[19rem_minmax(0,1fr)_24rem]",
-              else: "grid-cols-[19rem_minmax(0,1fr)]"
-            )
-          ]}
-        >
-          <aside id="left-rail" class="soft-panel overflow-y-auto">
-            <.start_form :if={@start} start={@start} />
-            <div class={[@start && "hidden"]}>
-              <.workflow_settings draft={@draft} name={@document["name"]} />
+            <div :if={!@run}>
+              <.workflow_settings draft={@draft} document={@document} />
               <.input_rail
                 inputs={@view.inputs}
-                prior={@view.prior_sources}
+                prior={if @stage, do: @view.prior_sources, else: []}
                 connect?={false}
                 form={@input_form}
                 types={@types}
               />
+              <.add_vertex :if={!@stage} form={@vertex_form} />
               <.catalog_picker
+                :if={@stage}
                 runners={@streams.runners}
                 plugins={@plugins}
                 query={@query}
@@ -249,47 +355,113 @@ defmodule DomovoyWeb.ComposerLive do
                 runs={@recent_runs}
                 draft_id={@draft.id}
                 stage={@stage}
+                attention_count={@attention_count}
               />
             </div>
-          </aside>
+          </.panel>
 
-          <.stage_canvas
-            cards={@view.cards}
-            sources={@view.source_nodes}
-            edges={@view.edges}
-            selected={@selected}
-            stage={@stage}
+          <div
+            :if={@canvas_only?}
+            id="canvas-only-bar"
+            data-canvas-control
+            class="soft-panel absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] items-center gap-3 px-3 py-1.5 text-sm"
+          >
+            <p id="canvas-only-status" class="min-w-0 truncate">
+              <%= if @run do %>
+                {sentence(@run, @document)}
+              <% else %>
+                {@draft.title}<span :if={@stage} class="text-muted"> / {@stage}</span>
+              <% end %>
+            </p>
+            <button
+              id="exit-canvas-only"
+              type="button"
+              phx-click="toggle_canvas_only"
+              phx-mounted={JS.focus()}
+              class="soft-btn soft-btn-quiet whitespace-nowrap px-2 py-1 text-sm"
+            >
+              Exit canvas only
+            </button>
+          </div>
+
+          <.start_form
+            :if={@start}
+            start={@start}
+            open?={@panel == "launcher"}
+            draft_id={@draft_id}
+            run_page?={not is_nil(@run)}
+            run_active?={run_active?(@run)}
           />
 
-          <aside :if={@selected_card} id="right-rail" class="soft-panel overflow-y-auto">
-            <.inspector card={@selected_card} replace={@replace} runner_options={@runner_options} />
+          <.results_panel
+            :if={@run}
+            run={@run}
+            document={@document}
+            open?={@panel == "results" and is_nil(@selected)}
+          />
+
+          <.panel
+            :if={@selected_card}
+            id="inspector-panel"
+            side="right"
+            label="Inspector"
+            open?={is_nil(@start) or @panel != "launcher"}
+            pinnable?
+          >
+            <.run_summary
+              :if={@run}
+              run={@run}
+              selected={@selected}
+              statuses={@statuses}
+              stage={@stage}
+              document={@document}
+              cards={@view.cards}
+              draft_id={@draft_id}
+            />
+            <.vertex_inspector
+              :if={!@run && !@stage}
+              card={@selected_card}
+              cards={@view.cards}
+              document={@document}
+              deciders={@deciders}
+              types={@types}
+              choice_form={@choice_form}
+            />
+            <.inspector
+              :if={!@run && @stage}
+              card={@selected_card}
+              replace={@replace}
+              runner_options={@runner_options}
+            />
+          </.panel>
+
+          <aside
+            :if={!@run && @tools_open?}
+            id="composer-tools"
+            data-canvas-control
+            aria-label="Issues and tools"
+            class="soft-panel workspace-panel absolute right-3 top-3 z-40 max-h-[calc(100%-1.5rem)] w-96 max-w-[calc(100%-1.5rem)] overflow-y-auto"
+          >
+            <div class="flex items-center justify-between border-b border-base-300 p-3">
+              <h2 class="font-semibold">Issues / Tools</h2>
+              <button
+                id="close-tools"
+                type="button"
+                phx-click="close_tools"
+                disabled={not is_nil(@confirm)}
+                class="soft-btn soft-btn-quiet px-2 py-1 text-sm"
+              >Close</button>
+            </div>
+            <.issue_list rows={@issue_rows} draft_id={@draft.id} />
+            <.loop_limits :if={!@stage && @view.loop?} />
+            <.connect_to :if={@stage} connect={@connect} />
+            <.clear_input_preview :if={@stage} clear={@clear} />
+            <.relationship_list :if={@stage} relationships={@view.relationships} />
           </aside>
         </div>
-
-        <aside
-          :if={!@run && @tools_open?}
-          id="composer-tools"
-          data-canvas-control
-          aria-label="Issues and tools"
-          class="soft-panel absolute right-4 top-20 z-30 max-h-[calc(100%-6rem)] w-96 max-w-[calc(100%-2rem)] overflow-y-auto"
-        >
-          <div class="flex items-center justify-between border-b border-base-300 p-3">
-            <h2 class="font-semibold">Issues / Tools</h2>
-            <button
-              id="close-tools"
-              type="button"
-              phx-click="close_tools"
-              disabled={not is_nil(@confirm)}
-              class="soft-btn soft-btn-quiet px-2 py-1 text-sm"
-            >Close</button>
-          </div>
-          <.issue_list rows={@issue_rows} draft_id={@draft.id} />
-          <.loop_limits :if={!@stage && @view.loop?} />
-          <.connect_to :if={@stage} connect={@connect} />
-          <.clear_input_preview :if={@stage} clear={@clear} />
-          <.relationship_list :if={@stage} relationships={@view.relationships} />
-        </aside>
         <.confirm_replace_literal confirm={@confirm} />
+        <.cancel_dialog :if={@run && @run.cancel_open?} />
+        <.reconcile_dialog :if={@run && @run.reconcile} run={@run} />
       </div>
     </Layouts.app>
     """
@@ -298,17 +470,7 @@ defmodule DomovoyWeb.ComposerLive do
   # Header
 
   @impl true
-  def handle_event("validate", _params, socket) do
-    %{document: document, view: view} = socket.assigns
-
-    case Composer.validate(document) do
-      {:valid, %{fingerprint: fingerprint}} ->
-        {:noreply, assign(socket, validity: %{fingerprint: fingerprint}, core_issues: [])}
-
-      {:invalid, issues} ->
-        {:noreply, assign(socket, validity: nil, core_issues: issues -- view.issues)}
-    end
-  end
+  def handle_event("validate", _params, socket), do: {:noreply, validate(socket)}
 
   def handle_event("undo", _params, socket) do
     %{history: history, draft: draft} = socket.assigns
@@ -433,6 +595,17 @@ defmodule DomovoyWeb.ComposerLive do
     {:noreply, commit(socket, {:put_decision, name, attrs})}
   end
 
+  # Evidence and outputs are checkboxes per node, `refs[stage][node]`, so a ref is never
+  # parsed out of one string; the op checks each names a node.
+  def handle_event("put_evidence", %{"evidence" => %{"decision" => decision} = params}, socket)
+      when is_binary(decision) do
+    {:noreply, commit(socket, {:put_evidence, decision, checked_refs(params["refs"])})}
+  end
+
+  def handle_event("put_outputs", %{"outputs" => params}, socket) when is_map(params) do
+    {:noreply, commit(socket, {:put_outputs, checked_refs(params["refs"])})}
+  end
+
   # Choices
 
   def handle_event("preview_choice", %{"choice" => params}, socket) do
@@ -519,13 +692,42 @@ defmodule DomovoyWeb.ComposerLive do
 
   def handle_event("close_picker", _params, socket), do: {:noreply, close_picker(socket)}
 
-  def handle_event("open_tools", _params, socket) do
-    {:noreply, assign(socket, :tools_open?, true)}
-  end
+  def handle_event("open_tools", _params, socket), do: {:noreply, open_tools(socket)}
 
   def handle_event("close_tools", _params, socket) do
     {:noreply, if(socket.assigns.confirm, do: socket, else: assign(socket, :tools_open?, false))}
   end
+
+  # Panels. Below `md` one surface fills the screen; only these names are accepted.
+  def handle_event("open_outline", _params, socket),
+    do: {:noreply, assign(socket, panel: "outline", surface: "outline")}
+
+  def handle_event("close_panel", _params, socket),
+    do: {:noreply, assign(socket, panel: nil, surface: "canvas")}
+
+  # The launcher is a surface only while one is open. Details hides it, since one right
+  # panel shows at a time; New run in the switcher brings it back.
+  def handle_event("set_surface", %{"surface" => surface}, socket) when surface in @surfaces do
+    %{panel: panel, start: start} = socket.assigns
+
+    panel =
+      cond do
+        surface == "outline" -> "outline"
+        surface == "launcher" and not is_nil(start) -> "launcher"
+        surface == "details" and panel == "launcher" -> nil
+        true -> panel
+      end
+
+    if surface == "launcher" and is_nil(start),
+      do: {:noreply, socket},
+      else: {:noreply, assign(socket, surface: surface, panel: panel)}
+  end
+
+  def handle_event("set_surface", _params, socket), do: {:noreply, socket}
+
+  # Canvas only takes no params, so nothing a client sends can set anything else.
+  def handle_event("toggle_canvas_only", _params, socket),
+    do: {:noreply, update(socket, :canvas_only?, &(not &1))}
 
   # Selection
 
@@ -534,25 +736,22 @@ defmodule DomovoyWeb.ComposerLive do
     selectable = if stage, do: Composer.nodes(document, stage), else: document["vertices"]
 
     if is_map_key(selectable, node) do
-      socket = assign(socket, selected: node, replace: nil, choice_form: choice_form(%{}))
-
       socket =
-        if is_binary(params["focus"]) do
-          socket
-          |> assign(:tools_open?, params["tools"] == true or not is_nil(socket.assigns.confirm))
-          |> push_event("composer:focus", %{id: params["focus"]})
-        else
-          socket
-        end
+        assign(socket,
+          selected: node,
+          surface: "details",
+          replace: nil,
+          choice_form: choice_form(%{})
+        )
 
-      {:noreply, socket}
+      {:noreply, focus_issue(socket, params)}
     else
       {:noreply, socket}
     end
   end
 
   def handle_event("deselect_node", _params, socket) do
-    {:noreply, assign(socket, selected: nil, replace: nil)}
+    {:noreply, assign(socket, selected: nil, replace: nil, surface: "canvas")}
   end
 
   # Canvas
@@ -596,7 +795,7 @@ defmodule DomovoyWeb.ComposerLive do
       targets = Composer.connect_targets(document, stage, source)
 
       {:noreply,
-       assign(socket, connect: %{source: source, query: "", targets: targets}, tools_open?: true)}
+       socket |> assign(:connect, %{source: source, query: "", targets: targets}) |> open_tools()}
     else
       {:noreply, socket}
     end
@@ -680,7 +879,7 @@ defmodule DomovoyWeb.ComposerLive do
     case Composer.preview(document, op) do
       %{warnings: [_ | _] = warnings} ->
         {:noreply,
-         assign(socket, clear: %{node: node, field: field, warnings: warnings}, tools_open?: true)}
+         socket |> assign(:clear, %{node: node, field: field, warnings: warnings}) |> open_tools()}
 
       _no_warning ->
         {:noreply, commit(socket, op)}
@@ -941,6 +1140,24 @@ defmodule DomovoyWeb.ComposerLive do
     end
   end
 
+  # An issue link selects its node and focuses its row, in Tools when the row lives there.
+  @spec focus_issue(socket :: Phoenix.LiveView.Socket.t(), params :: map()) ::
+          Phoenix.LiveView.Socket.t()
+  defp focus_issue(socket, %{"focus" => focus} = params) when is_binary(focus) do
+    socket =
+      if params["tools"] == true or not is_nil(socket.assigns.confirm),
+        do: open_tools(socket),
+        else: assign(socket, :tools_open?, false)
+
+    push_event(socket, "composer:focus", %{id: focus})
+  end
+
+  defp focus_issue(socket, _params), do: socket
+
+  # Tools lives on the canvas surface, so below `md` opening it also shows the canvas.
+  @spec open_tools(socket :: Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp open_tools(socket), do: assign(socket, tools_open?: true, surface: "canvas")
+
   @spec close_picker(socket :: Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp close_picker(%{assigns: %{picker_source: nil}} = socket) do
     assign(socket, picked: nil, node_form: node_form("", ""))
@@ -1029,6 +1246,19 @@ defmodule DomovoyWeb.ComposerLive do
     }
   end
 
+  @spec validate(socket :: Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp validate(socket) do
+    %{document: document, view: view} = socket.assigns
+
+    case Composer.validate(document) do
+      {:valid, %{fingerprint: fingerprint}} ->
+        assign(socket, validity: %{fingerprint: fingerprint}, core_issues: [])
+
+      {:invalid, issues} ->
+        assign(socket, validity: nil, core_issues: issues -- view.issues)
+    end
+  end
+
   # Reading
 
   @spec load_draft(id :: term()) :: {:ok, Draft.t()} | :error
@@ -1043,11 +1273,19 @@ defmodule DomovoyWeb.ComposerLive do
 
   @spec reset_draft(socket :: Phoenix.LiveView.Socket.t(), draft :: Draft.t()) ::
           Phoenix.LiveView.Socket.t()
-  defp reset_draft(socket, draft) do
+  defp reset_draft(socket, draft), do: reset_view(socket, draft, draft.document)
+
+  # A run whose draft was deleted has no draft, only its snapshot.
+  @spec reset_view(
+          socket :: Phoenix.LiveView.Socket.t(),
+          draft :: Draft.t() | nil,
+          document :: map()
+        ) :: Phoenix.LiveView.Socket.t()
+  defp reset_view(socket, draft, document) do
     socket
     |> assign(
       draft: draft,
-      document: draft.document,
+      document: document,
       history: Composer.reset_history(),
       validity: nil,
       core_issues: [],
@@ -1064,12 +1302,19 @@ defmodule DomovoyWeb.ComposerLive do
   end
 
   # Moving between the workflow and a stage leaves behind what belonged to the last one.
+  # Every patch comes here, so the surface goes back to the canvas only when the level or
+  # the run on screen changed; `?run=` is already read, so `run_id/1` is the new one.
   @spec enter(socket :: Phoenix.LiveView.Socket.t(), stage :: String.t() | nil) ::
           Phoenix.LiveView.Socket.t()
   defp enter(socket, stage) do
+    shown = {stage, run_id(socket)}
+    surface = if shown == socket.assigns.shown, do: socket.assigns.surface, else: "canvas"
+
     socket
     |> assign(
       stage: stage,
+      shown: shown,
+      surface: surface,
       tools_open?: false,
       selected: nil,
       rejection: nil,
@@ -1184,6 +1429,16 @@ defmodule DomovoyWeb.ComposerLive do
   defp attempts(_value), do: :error
 
   # Forms
+
+  # Nil for anything but a map of maps, which the op then refuses.
+  @spec checked_refs(refs :: term()) :: [map()] | nil
+  defp checked_refs(refs) when is_map(refs) do
+    if Enum.all?(refs, fn {_stage, nodes} -> is_map(nodes) end) do
+      for {stage, nodes} <- refs, {node, "true"} <- nodes, do: %{"stage" => stage, "node" => node}
+    end
+  end
+
+  defp checked_refs(_refs), do: nil
 
   @spec form_value(params :: map(), name :: String.t()) :: term()
   defp form_value(params, name) do

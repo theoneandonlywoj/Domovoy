@@ -28,12 +28,14 @@ defmodule DomovoyWeb.ComposerRunViewLiveTest do
     %{draft: draft, run_id: run_id, runner: runner}
   end
 
-  # Opens a run page and waits until its first replayed attempt has reached it.
+  # Opens a run page and waits until its first replayed attempt has reached it. The
+  # replay can land before the watch begins, so the page's fold is read first.
   defp open_run(conn, path) do
     {:ok, view, _html} = live(conn, path)
     watch(view.pid)
     render_async(view, 5_000)
-    await_delivered(&(&1["type"] == "attempt_admitted"))
+    %{socket: %{assigns: %{run: run}}} = :sys.get_state(view.pid)
+    if run.fold.attempts == %{}, do: await_delivered(&(&1["type"] == "attempt_admitted"))
     render(view)
     view
   end
@@ -78,16 +80,84 @@ defmodule DomovoyWeb.ComposerRunViewLiveTest do
       refute has_element?(view, "#cancel-run")
     end
 
-    test "the workflow shows the stage's status and its rail shows the run", %{conn: conn} do
+    test "the workflow shows the stage's status and its outline shows the run", %{conn: conn} do
       held = start_held()
       view = open_run(conn, ~p"/composer/#{held.draft.id}?run=#{held.run_id}")
 
       assert has_element?(view, "#vertex-main[data-run-status='running']")
-      assert has_element?(view, "#right-rail #run-phase", "running")
-      assert has_element?(view, "#left-rail #recent-run-#{held.run_id}")
-      assert has_element?(view, "#left-rail #run-input-trap_exit")
+      assert has_element?(view, "#outline-panel #run-phase", "running")
+      assert has_element?(view, "#outline-panel #recent-run-#{held.run_id}")
+      assert has_element?(view, "#outline-panel #run-input-trap_exit")
       refute has_element?(view, "#inputs-form")
       refute has_element?(view, "#composer-tools")
+    end
+  end
+
+  describe "the run switcher" do
+    defp waiting_view do
+      %{
+        committed_phase: "waiting",
+        outcome: nil,
+        generation: 0,
+        committed_seq: 4,
+        awaiting: [%{occurrence: "o", decision: "review", choices: ["accept"]}],
+        error: nil
+      }
+    end
+
+    test "a finished run with no summary is no Unfinished run, only a check", %{conn: conn} do
+      held = start_held()
+      send(held.runner, :release)
+      await_phase(open!(held.run_id), "finished")
+
+      {:ok, view, _html} = live(conn, ~p"/composer/#{held.draft.id}")
+      render_async(view, 5_000)
+
+      refute has_element?(view, "#latest-run-link")
+      assert has_element?(view, "#recent-run-status-#{held.run_id}", "Needs a check")
+      assert has_element?(view, "#attention-runs-link", "1 run may need you")
+    end
+
+    test "a written waiting summary is the Unfinished run, listed first", %{conn: conn} do
+      held = start_held()
+      draft = held.draft
+      send(held.runner, :release)
+      await_phase(open!(held.run_id), "finished")
+      :ok = Composer.summarize_run(held.run_id, waiting_view())
+
+      {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+      render_async(view, 5_000)
+
+      assert has_element?(
+               view,
+               "#latest-run-link[href='/composer/#{draft.id}?run=#{held.run_id}']"
+             )
+
+      assert has_element?(view, "#recent-run-status-#{held.run_id}", "Needs you")
+
+      assert has_element?(
+               view,
+               "#all-runs-link[href='/composer/runs?draft=#{draft.id}']"
+             )
+    end
+
+    test "a run page's switcher opens the runs, with its attention count", %{conn: conn} do
+      held = start_held()
+      view = open_run(conn, ~p"/composer/#{held.draft.id}?run=#{held.run_id}")
+
+      # Opening the run wrote its summary through, so it now reads as running.
+      assert %{committed_phase: "running"} =
+               Domovoy.Repo.get(Domovoy.Composer.RunSummary, held.run_id)
+
+      assert has_element?(view, "#outline-panel[hidden]")
+
+      view |> element("#run-switcher") |> render_click()
+      assert has_element?(view, "#outline-panel:not([hidden]) #recent-run-#{held.run_id}")
+
+      {:ok, view, _html} = live(conn, ~p"/composer/#{held.draft.id}?run=#{held.run_id}")
+      render_async(view, 5_000)
+      assert has_element?(view, "#run-switcher-attention", "1")
+      assert has_element?(view, "#recent-run-status-#{held.run_id}", "Running")
     end
   end
 
@@ -144,7 +214,8 @@ defmodule DomovoyWeb.ComposerRunViewLiveTest do
       assert lock(held.draft) == lock
       assert {:ok, %{title: "Renamed"}} = Composer.get_draft(held.draft.id)
       refute has_element?(view, "#composer-tools")
-      refute has_element?(view, "#start-form")
+      # New run is the one start allowed on a run page; it only opens the launcher.
+      assert has_element?(view, "#launcher-panel:not([hidden]) #start-form")
     end
 
     test "a crafted select with focus and tools changes only the selection", %{conn: conn} do

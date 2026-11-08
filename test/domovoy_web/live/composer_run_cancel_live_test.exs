@@ -16,6 +16,7 @@ defmodule DomovoyWeb.ComposerRunCancelLiveTest do
     ]
 
   alias Domovoy.Composer
+  alias Domovoy.CoreCallTrace
 
   setup :setup_runs
 
@@ -48,6 +49,7 @@ defmodule DomovoyWeb.ComposerRunCancelLiveTest do
     view |> element("#cancel-run") |> render_click()
     view |> element("#confirm-cancel-run") |> render_click()
     refute has_element?(view, "#cancel-run-dialog")
+    render_async(view, 5_000)
 
     await_delivered(entered("finished"))
 
@@ -58,14 +60,16 @@ defmodule DomovoyWeb.ComposerRunCancelLiveTest do
     refute has_element?(view, "#rejection")
   end
 
-  test "a crafted cancel on a succeeded run, and on a cancelled one, is refused by type",
+  # A finished run offers no Cancel, so a crafted one is refused on the page and never
+  # reaches Core.
+  test "a crafted cancel on a succeeded run, and on a cancelled one, is refused before Core",
        %{conn: conn} do
     succeeded = start_held()
     send(succeeded.runner, :release)
     await_phase(open!(succeeded.run_id), "finished")
 
     cancelled = start_held()
-    :ok = Composer.cancel_run(open!(cancelled.run_id))
+    {:ok, _receipt} = Composer.cancel_run(open!(cancelled.run_id), Ecto.UUID.generate())
     assert %{outcome: "cancelled"} = await_phase(open!(cancelled.run_id), "finished")
 
     for held <- [succeeded, cancelled] do
@@ -75,10 +79,57 @@ defmodule DomovoyWeb.ComposerRunCancelLiveTest do
       render_hook(view, "open_cancel_run", %{})
       refute has_element?(view, "#cancel-run-dialog")
 
-      render_hook(view, "confirm_cancel_run", %{})
+      calls =
+        CoreCallTrace.calls(fn ->
+          render_hook(view, "confirm_cancel_run", %{})
+          render_async(view, 5_000)
+        end)
 
-      assert has_element?(view, "#rejection-core-id", "already_terminal")
+      refute Enum.any?(calls, &match?({:command, _args}, &1))
+      assert has_element?(view, "#rejection-message", "isn't available for this run")
+      refute has_element?(view, "#rejection-core-id")
       assert has_element?(view, "#run-phase", "finished")
     end
+  end
+
+  test "a stale waiting summary authorises nothing: Cancel re-reads Core", %{conn: conn} do
+    held = start_held()
+    send(held.runner, :release)
+    await_phase(open!(held.run_id), "finished")
+
+    :ok =
+      Composer.summarize_run(held.run_id, %{
+        committed_phase: "waiting",
+        outcome: nil,
+        generation: 0,
+        committed_seq: 1_000,
+        awaiting: [],
+        error: nil
+      })
+
+    view = open_run(conn, held)
+    refute has_element?(view, "#cancel-run")
+
+    # The page believes the stale summary's story, so it offers Cancel.
+    :sys.replace_state(view.pid, fn state ->
+      update_in(state.socket.assigns.run.status, fn status ->
+        %{status | phase: "waiting", committed_phase: "waiting", outcome: nil, owner_live?: true}
+      end)
+    end)
+
+    render_hook(view, "open_cancel_run", %{})
+    assert has_element?(view, "#cancel-run-dialog")
+
+    calls =
+      CoreCallTrace.calls(fn ->
+        view |> element("#confirm-cancel-run") |> render_click()
+        render_async(view, 5_000)
+      end)
+
+    assert Enum.any?(calls, &match?({:view, _args}, &1))
+    assert has_element?(view, "#rejection-message", "This run has already finished.")
+
+    assert {:ok, [%{summary: %{terminal: true, committed_phase: "finished"}}]} =
+             Composer.refresh_run_summaries([held.run_id])
   end
 end
