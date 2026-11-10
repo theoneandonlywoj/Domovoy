@@ -33,7 +33,7 @@ defmodule DomovoyWeb.DashboardLive do
      |> stream_configure(:jobs, dom_id: &"job-#{&1.id}")
      |> stream_configure(:drafts, dom_id: &"workflow-#{&1.id}")
      |> assign(query: "", status: "all", count: 0, total: 0, chips: [])
-     |> assign(latest_runs: %{}, create_form: draft_form(""), tiles: [])
+     |> assign(latest_runs: %{}, create_form: draft_form(""), tiles: [], deleting: nil)
      |> stream(:projects, [])
      |> stream(:jobs, [])
      |> stream(:drafts, [])}
@@ -54,12 +54,16 @@ defmodule DomovoyWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} variant="dashboard" active={Atom.to_string(@live_action)}>
-      <div class="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
-        <header class="flex flex-wrap items-end justify-between gap-4">
-          <h1 class="font-display text-3xl">{@page_title}</h1>
-          <div :if={@live_action != :dashboard} class="w-full sm:w-72">
+      <div id="dashboard-panel" class="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
+        <header :if={@live_action != :dashboard} class="flex flex-wrap items-center gap-3">
+          <div class="w-full">
             <.search_bar form={@form} placeholder={placeholder(@live_action)} />
           </div>
+          <.query_chip
+            :if={@live_action != :jobs}
+            query={@query}
+            clear={panel_path(@live_action, "", @status)}
+          />
         </header>
 
         <div :if={@live_action == :dashboard} id="dashboard-tiles" class="grid gap-4 sm:grid-cols-3">
@@ -76,25 +80,8 @@ defmodule DomovoyWeb.DashboardLive do
           </.link>
         </div>
 
-        <.form
-          :if={@live_action == :workflows}
-          for={@create_form}
-          id="dashboard-new-workflow"
-          phx-submit="create"
-          class="flex items-start gap-2"
-        >
-          <div class="flex-1 sm:max-w-md">
-            <.input field={@create_form[:title]} type="text" label="New workflow" required />
-          </div>
-          <button
-            id="dashboard-create-workflow"
-            type="submit"
-            phx-disable-with="Creating…"
-            class="soft-btn soft-btn-primary mt-7 px-3 py-2 text-sm"
-          >
-            Create
-          </button>
-        </.form>
+        <.new_workflow :if={@live_action == :workflows} form={@create_form} />
+        <.confirm_delete_workflow :if={@live_action == :workflows} draft={@deleting} />
 
         <div
           :if={@live_action == :workflows}
@@ -105,8 +92,9 @@ defmodule DomovoyWeb.DashboardLive do
           <p id="drafts-empty" class="hidden py-6 text-sm text-muted only:block">
             No workflows match.
           </p>
-          <div :for={{id, draft} <- @streams.drafts} id={id}>
+          <div :for={{id, draft} <- @streams.drafts} id={id} class="group relative">
             <.workflow_card draft={draft} run={@latest_runs[draft.id]} />
+            <.delete_workflow_button draft={draft} />
           </div>
         </div>
 
@@ -123,7 +111,12 @@ defmodule DomovoyWeb.DashboardLive do
         </div>
 
         <section :if={@live_action == :jobs} aria-label="Jobs" class="space-y-3">
-          <.status_chips chips={@chips} status={@status} />
+          <.status_chips
+            chips={@chips}
+            status={@status}
+            query={@query}
+            clear={panel_path(:jobs, "", @status)}
+          />
           <p id="jobs-count" class="text-xs text-muted">Showing {@count} of {@total}</p>
           <ul id="jobs" phx-update="stream" class="space-y-2">
             <.jobs_empty total={@total} />
@@ -159,6 +152,39 @@ defmodule DomovoyWeb.DashboardLive do
       {:error, changeset} ->
         shown = if Composer.text_safe?(title), do: title, else: ""
         {:noreply, assign(socket, :create_form, draft_form(shown, changeset.errors))}
+    end
+  end
+
+  # Delete asks first: `ask_delete` opens the confirmation, `delete` runs it. A draft gone
+  # meanwhile just refreshes the list.
+  def handle_event("ask_delete", %{"id" => id}, socket)
+      when is_binary(id) and socket.assigns.live_action == :workflows do
+    case Composer.get_draft(id) do
+      {:ok, draft} -> {:noreply, assign(socket, :deleting, draft)}
+      _gone -> {:noreply, load(socket, :workflows)}
+    end
+  end
+
+  def handle_event("cancel_delete", _params, socket),
+    do: {:noreply, assign(socket, :deleting, nil)}
+
+  def handle_event("delete", _params, %{assigns: %{deleting: %Composer.Draft{} = draft}} = socket) do
+    socket = assign(socket, :deleting, nil)
+
+    case Composer.delete_draft(draft) do
+      {:ok, deleted} ->
+        {:noreply, stream_delete(socket, :drafts, deleted)}
+
+      {:error, :runs_unfinished} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "That workflow has a run that isn't finished. Cancel it first."
+         )}
+
+      {:error, :gone} ->
+        {:noreply, load(socket, :workflows)}
     end
   end
 

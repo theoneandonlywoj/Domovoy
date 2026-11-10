@@ -4,7 +4,7 @@ import {decide, modalOpen, typing} from "./keys.js"
 
 const base = {
   key: "g", altKey: false, metaKey: false, ctrlKey: false, repeat: false, isComposing: false,
-  typing: false, modal: false, pending: null, prefixes: ["g"], hintsKey: "?",
+  typing: false, modal: false, pending: null, prefixes: ["g", "f"], hintsKey: "?", focusKey: "/",
 }
 const at = overrides => decide({...base, ...overrides})
 
@@ -31,6 +31,28 @@ test("the hints key toggles hints and Escape hides them, even when pending or un
   assert.deepEqual(at({key: "Escape"}), {type: "hide"})
   assert.deepEqual(at({key: "Escape", pending: "g"}), {type: "hide"})
   assert.deepEqual(at({key: "Escape", modal: true}), {type: "hide"})
+})
+
+test("the focus key focuses, except while typing or under a modal", () => {
+  assert.deepEqual(at({key: "/"}), {type: "focus", combo: "/"})
+  assert.deepEqual(at({key: "/", typing: true}), {type: "ignore"})
+  assert.deepEqual(at({key: "/", modal: true}), {type: "ignore"})
+})
+
+test("the f prefix arms and picks an indexed key", () => {
+  assert.deepEqual(at({key: "f"}), {type: "arm", prefix: "f"})
+  assert.deepEqual(at({key: "2", pending: "f"}), {type: "go", combo: "f 2"})
+})
+
+test("Cmd/Ctrl+K focuses the focus key's field", () => {
+  assert.deepEqual(at({metaKey: true, key: "k"}), {type: "focus", combo: "/"})
+  assert.deepEqual(at({ctrlKey: true, key: "K"}), {type: "focus", combo: "/"})
+})
+
+test("Cmd+K is ignored while typing, under a modal, with Alt, on repeat or without a focus key", () => {
+  for (const overrides of [{typing: true}, {modal: true}, {altKey: true}, {repeat: true}, {focusKey: undefined}]) {
+    assert.deepEqual(at({metaKey: true, key: "k", ...overrides}), {type: "ignore"}, JSON.stringify(overrides))
+  }
 })
 
 test("any other key is ignored", () => {

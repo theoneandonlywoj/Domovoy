@@ -86,7 +86,7 @@ defmodule DomovoyWeb.DashboardLiveTest do
 
       assert has_element?(
                view,
-               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g"][data-hints-key="?"])
+               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g f c"][data-hints-key="?"][data-focus-key="/"])
              )
     end
 
@@ -226,6 +226,83 @@ defmodule DomovoyWeb.DashboardLiveTest do
                |> LazyHTML.text()
                |> String.trim() == expected
       end
+    end
+  end
+
+  describe "panel header" do
+    test "no page heading renders, nothing precedes the panel content and the tab keeps its title",
+         %{conn: conn} do
+      for {path, title, first} <- [
+            {"/dashboard", "Dashboard", "#dashboard-tiles"},
+            {"/dashboard/projects", "Projects", "header"},
+            {"/dashboard/jobs", "Jobs", "header"},
+            {"/dashboard/workflows", "Workflows", "header"}
+          ] do
+        {:ok, view, _html} = live(conn, path)
+
+        refute has_element?(view, "#dashboard-main h1")
+        assert has_element?(view, "#dashboard-panel > #{first}:first-child")
+
+        refute has_element?(
+                 view,
+                 "#dashboard-panel > header > :not(div):not(#dashboard-filter-query)"
+               )
+
+        assert page_title(view) =~ title
+      end
+    end
+
+    test "the search field carries the focus key and wraps the debounced input", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/projects")
+
+      assert has_element?(
+               view,
+               ~s(#dashboard-search-field[data-shortcut="/"][data-shortcut-focus] input[name="search[q]"][phx-debounce])
+             )
+    end
+
+    test "the status chips carry f 1 to f 6 in order as patch links", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/jobs")
+
+      for {value, i} <- Enum.with_index(~w(all running queued succeeded failed cancelled), 1) do
+        assert has_element?(
+                 view,
+                 ~s(#jobs-chip-#{value}[data-shortcut="f #{i}"][data-phx-link="patch"])
+               )
+      end
+    end
+
+    test "the jobs query chip sits with the chips and clears q but keeps status", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/jobs?q=borg&status=running")
+
+      assert has_element?(view, ~s(#search_q[value="borg"]))
+      assert has_element?(view, "#jobs-filters > #dashboard-filter-query")
+      refute has_element?(view, "header #dashboard-filter-query")
+
+      view |> element("#dashboard-filter-clear") |> render_click()
+      assert_patch(view, "/dashboard/jobs?status=running")
+
+      refute has_element?(view, "#dashboard-filter-query")
+      assert has_element?(view, ~s(#search_q[name="search[q]"]))
+      refute has_element?(view, ~s(#search_q[value="borg"]))
+      assert has_element?(view, "#jobs-chip-running[aria-current]")
+    end
+
+    test "the projects query chip sits in the header and clears to the bare panel", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/projects?q=borg")
+
+      assert has_element?(view, "header #dashboard-filter-query")
+
+      view |> element("#dashboard-filter-clear") |> render_click()
+      assert_patch(view, "/dashboard/projects")
+    end
+
+    test "no query chip renders without a query", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+      refute has_element?(view, "#dashboard-filter-query")
     end
   end
 

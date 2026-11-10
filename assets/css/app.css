@@ -451,6 +451,43 @@
   color: var(--color-primary);
 }
 .dashboard-progress { background: var(--gloss-gold); box-shadow: var(--gloss-glow); }
+/* The panel search field: a sunken frame that rings in primary while its input has focus. */
+.dashboard-search {
+  border-radius: var(--soft-radius-panel);
+  background: var(--color-sunken);
+  box-shadow: var(--soft-shadow-sunken);
+  transition: box-shadow 150ms ease-out;
+}
+.dashboard-search:focus-within { box-shadow: var(--soft-shadow-sunken), 0 0 0 2px var(--color-primary); }
+@media (prefers-reduced-motion: reduce) { .dashboard-search { transition: none; } }
+/* The floating New workflow button: a gold circle that lifts on hover. */
+.dashboard-fab {
+  background: var(--gloss-gold);
+  color: var(--color-primary-content);
+  box-shadow: var(--gloss-glow), 0 10px 22px -10px rgb(0 0 0 / 90%);
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+.dashboard-fab:hover { transform: translateY(-1px); box-shadow: 0 0 26px 3px rgb(230 200 120 / 45%), 0 10px 22px -10px rgb(0 0 0 / 90%); }
+.dashboard-fab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.dashboard-fab .dashboard-kbd { color: inherit; }
+/* A floating surface over the page: the New workflow form and the button's label. */
+.dashboard-popover {
+  border-radius: var(--soft-radius-panel);
+  background: var(--color-base-300);
+  border: 1px solid rgb(230 200 120 / 45%);
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 95%);
+}
+@media (prefers-reduced-motion: reduce) { .dashboard-fab { transition: none; } }
+/* A key cap. Like the [data-shortcut] badges, it shows only while `?` hints are on. */
+.dashboard-kbd {
+  display: none;
+  padding: 0 .5rem;
+  font: 500 .75rem/1.25rem var(--font-mono);
+  color: var(--color-muted);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  border-radius: 999px;
+}
+html[data-hints="on"] .dashboard-kbd { display: inline-block; }
 
 /* Shortcut hints: `?` sets html[data-hints="on"]; each [data-shortcut] shows its key. */
 :where(html[data-hints="on"] [data-shortcut]) { position: relative; }
@@ -464,6 +501,10 @@
 }
 :where(html:has([aria-modal="true"]:not(#dashboard-drawer)) [data-shortcut])::after { display: none; }
 :where(html[data-hints-prefix="g"] [data-shortcut]:not([data-shortcut^="g "]))::after { opacity: .35; }
+:where(html[data-hints-prefix="f"] [data-shortcut]:not([data-shortcut^="f "]))::after { opacity: .35; }
+:where(html[data-hints-prefix="c"] [data-shortcut]:not([data-shortcut^="c "]))::after { opacity: .35; }
+/* The field's `/` badge sits on the left, clear of the kbd keys at the right edge. */
+#dashboard-search-field[data-shortcut]::after { right: auto; left: .125rem; }
 @media (prefers-reduced-motion: reduce) { :where(html[data-hints="on"] [data-shortcut])::after { transition: none; } }
 
 /* Composer canvas */

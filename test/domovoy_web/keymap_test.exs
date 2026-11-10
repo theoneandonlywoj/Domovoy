@@ -13,7 +13,7 @@ defmodule DomovoyWeb.KeymapTest do
     test "the real keymap parses and normalises single keys to lists" do
       keymap = @path |> File.read!() |> Spec.parse!()
 
-      assert keymap.prefixes == ["g"]
+      assert keymap.prefixes == ["g", "f", "c"]
       assert keymap.scopes["page"]["go.workflows"] == ["g w"]
       assert keymap.scopes["page"]["app.hints"] == ["?"]
     end
@@ -96,6 +96,18 @@ defmodule DomovoyWeb.KeymapTest do
       assert Keymap.attrs("go.jobs") == [{"data-shortcut", "g j"}]
       assert Keymap.attrs("app.hints") == [{"data-shortcut", "?"}, {"aria-keyshortcuts", "?"}]
       assert Keymap.attrs(nil) == []
+    end
+
+    test "key/2 and attrs/2 index into a list action" do
+      assert Keymap.key("filter.pick", 1) == "f 2"
+      assert Keymap.key("filter.pick", 6) == nil
+      assert Keymap.attrs("filter.pick", 0) == [{"data-shortcut", "f 1"}]
+      assert Keymap.attrs("filter.pick", 9) == []
+      assert Keymap.attrs(nil, 0) == []
+    end
+
+    test "search.focus is the slash key" do
+      assert Keymap.key("search.focus") == "/"
     end
 
     test "key/1 raises for an unknown action" do
