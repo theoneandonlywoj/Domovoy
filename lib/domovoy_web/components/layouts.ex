@@ -5,6 +5,8 @@ defmodule DomovoyWeb.Layouts do
   """
   use DomovoyWeb, :html
 
+  alias DomovoyWeb.Keymap
+
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
@@ -49,7 +51,13 @@ defmodule DomovoyWeb.Layouts do
   # still covers the viewport.
   def app(%{variant: "dashboard"} = assigns) do
     ~H"""
-    <div id="dashboard-shell" class="flex h-dvh overflow-hidden">
+    <div
+      id="dashboard-shell"
+      phx-hook="Shortcuts"
+      data-prefixes={Enum.join(Keymap.prefixes(), " ")}
+      data-hints-key={Keymap.key("app.hints")}
+      class="flex h-dvh overflow-hidden"
+    >
       <nav
         id="dashboard-drawer"
         aria-label="Dashboard"
@@ -77,6 +85,7 @@ defmodule DomovoyWeb.Layouts do
           navigate={item.path}
           aria-current={@active == item.key && "page"}
           aria-label={item.label}
+          {Keymap.attrs(item.action)}
           class="dashboard-nav soft-btn soft-btn-quiet flex items-center gap-3 px-3 py-2"
         >
           <.icon name={item.icon} class="size-5 shrink-0" />
@@ -123,22 +132,44 @@ defmodule DomovoyWeb.Layouts do
   end
 
   # The only list of drawer items.
-  @spec nav_items() :: [%{key: String.t(), label: String.t(), icon: String.t(), path: String.t()}]
+  @spec nav_items() :: [
+          %{
+            key: String.t(),
+            label: String.t(),
+            icon: String.t(),
+            path: String.t(),
+            action: String.t()
+          }
+        ]
   defp nav_items do
     [
-      %{key: "dashboard", label: "Dashboard", icon: "hero-home", path: ~p"/dashboard"},
+      %{
+        key: "dashboard",
+        label: "Dashboard",
+        icon: "hero-home",
+        path: ~p"/dashboard",
+        action: "go.dashboard"
+      },
       %{
         key: "projects",
         label: "Projects",
         icon: "hero-squares-2x2",
-        path: ~p"/dashboard/projects"
+        path: ~p"/dashboard/projects",
+        action: "go.projects"
       },
-      %{key: "jobs", label: "Jobs", icon: "hero-queue-list", path: ~p"/dashboard/jobs"},
+      %{
+        key: "jobs",
+        label: "Jobs",
+        icon: "hero-queue-list",
+        path: ~p"/dashboard/jobs",
+        action: "go.jobs"
+      },
       %{
         key: "workflows",
         label: "Workflows",
         icon: "hero-share",
-        path: ~p"/dashboard/workflows"
+        path: ~p"/dashboard/workflows",
+        action: "go.workflows"
       }
     ]
   end

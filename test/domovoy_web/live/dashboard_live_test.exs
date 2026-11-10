@@ -6,6 +6,7 @@ defmodule DomovoyWeb.DashboardLiveTest do
   alias Domovoy.Composer
   alias Domovoy.Dashboard.Mock
   alias DomovoyWeb.DashboardComponents
+  alias DomovoyWeb.Keymap
 
   @spec count(view :: term(), selector :: String.t()) :: non_neg_integer()
   defp count(view, selector),
@@ -60,6 +61,35 @@ defmodule DomovoyWeb.DashboardLiveTest do
   end
 
   describe "drawer" do
+    test "each item carries its key from the keymap", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard")
+
+      for {item, action} <- [
+            {"dashboard", "go.dashboard"},
+            {"projects", "go.projects"},
+            {"jobs", "go.jobs"},
+            {"workflows", "go.workflows"}
+          ] do
+        assert has_element?(
+                 view,
+                 ~s(#dashboard-nav-#{item}[data-shortcut="#{Keymap.key(action)}"])
+               )
+      end
+
+      assert has_element?(view, ~s(#dashboard-nav-workflows[data-shortcut="g w"]))
+    end
+
+    test "the shell hosts the shortcuts hook with the keymap's prefixes and hints key", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/dashboard")
+
+      assert has_element?(
+               view,
+               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g"][data-hints-key="?"])
+             )
+    end
+
     test "lists Dashboard first, then Projects, Jobs and Workflows", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/dashboard")
 

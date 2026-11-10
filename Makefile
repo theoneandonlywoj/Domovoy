@@ -190,9 +190,9 @@ quality:
 test:
 	MIX_ENV=test mix test
 
-# Run the composer's pure gesture modules with Node
+# Run the pure JS modules and hooks with Node
 test-js:
-	node --test "assets/js/composer/*.test.js"
+	node --test "assets/js/composer/*.test.js" "assets/js/shortcuts/*.test.js"
 
 # Validate Makefile recipes against stubbed dev-service behavior.
 dev-check-make:

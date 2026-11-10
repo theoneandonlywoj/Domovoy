@@ -452,6 +452,20 @@
 }
 .dashboard-progress { background: var(--gloss-gold); box-shadow: var(--gloss-glow); }
 
+/* Shortcut hints: `?` sets html[data-hints="on"]; each [data-shortcut] shows its key. */
+:where(html[data-hints="on"] [data-shortcut]) { position: relative; }
+:where(html[data-hints="on"] [data-shortcut])::after {
+  content: attr(data-shortcut);
+  position: absolute; top: .125rem; right: .125rem; z-index: 5;
+  padding: 0 .3rem; font: 500 .6875rem/1.1rem var(--font-mono); white-space: nowrap;
+  background: var(--color-base-300); color: var(--color-base-content);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  border-radius: 999px; pointer-events: none; transition: opacity 120ms ease-out;
+}
+:where(html:has([aria-modal="true"]:not(#dashboard-drawer)) [data-shortcut])::after { display: none; }
+:where(html[data-hints-prefix="g"] [data-shortcut]:not([data-shortcut^="g "]))::after { opacity: .35; }
+@media (prefers-reduced-motion: reduce) { :where(html[data-hints="on"] [data-shortcut])::after { transition: none; } }
+
 /* Composer canvas */
 #stage-canvas { cursor: grab; }
 #stage-canvas[data-gesture] { cursor: grabbing; }
