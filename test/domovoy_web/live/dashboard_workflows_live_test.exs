@@ -104,6 +104,85 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
 
     assert has_element?(view, "#dashboard-new-workflow")
     assert has_element?(view, "#dashboard-new-workflow .text-error")
+    # The form stays open while its title has an error.
+    refute has_element?(view, "#dashboard-new-workflow-panel.hidden")
+  end
+
+  test "the floating button carries c w and opens the hidden form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+    assert has_element?(
+             view,
+             ~s(#dashboard-new-workflow-dock > div > button#dashboard-new-workflow-open[data-shortcut="c w"][aria-controls="dashboard-new-workflow-panel"][phx-click])
+           )
+
+    assert has_element?(view, "#dashboard-new-workflow-panel.hidden #dashboard-new-workflow")
+    assert has_element?(view, ~s(#dashboard-cancel-workflow[phx-click]))
+    # The form hook closes on Esc (data-close) and submits on Cmd/Ctrl+Enter, announced on Create.
+    assert has_element?(view, ~s(#dashboard-new-workflow[phx-hook][data-close]))
+
+    assert has_element?(
+             view,
+             ~s(#dashboard-create-workflow[aria-keyshortcuts="Meta+Enter Control+Enter"])
+           )
+  end
+
+  test "only the workflows panel has the floating button", %{conn: conn} do
+    for path <- ["/dashboard", "/dashboard/projects", "/dashboard/jobs"] do
+      {:ok, view, _html} = live(conn, path)
+      refute has_element?(view, "#dashboard-new-workflow-open")
+    end
+  end
+
+  describe "deleting a workflow" do
+    test "Delete asks first; Cancel and Esc keep the workflow", %{conn: conn} do
+      draft = draft!(scenario_a(), "Keep me")
+      {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+      refute has_element?(view, "#confirm-delete-workflow")
+      view |> element("#workflow-#{draft.id}-delete") |> render_click()
+
+      assert has_element?(view, "#confirm-delete-workflow[role=alertdialog][aria-modal=true]")
+      assert has_element?(view, "#confirm-delete-workflow-title", "Keep me")
+      assert has_element?(view, "#confirm-delete-workflow[phx-hook]")
+
+      assert has_element?(
+               view,
+               ~s(#confirm-delete-workflow-button[aria-keyshortcuts="Meta+Enter Control+Enter"])
+             )
+
+      view |> element("#cancel-delete-workflow") |> render_click()
+      refute has_element?(view, "#confirm-delete-workflow")
+      assert has_element?(view, "#workflow-#{draft.id}")
+
+      view |> element("#workflow-#{draft.id}-delete") |> render_click()
+      view |> element("#confirm-delete-workflow") |> render_keydown(%{"key" => "Escape"})
+      refute has_element?(view, "#confirm-delete-workflow")
+      assert {:ok, _draft} = Composer.get_draft(draft.id)
+    end
+
+    test "confirming deletes the workflow and removes its card", %{conn: conn} do
+      draft = draft!(scenario_a(), "Delete me")
+      other = draft!(scenario_a(), "Stays")
+      {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+      view |> element("#workflow-#{draft.id}-delete") |> render_click()
+      view |> element("#confirm-delete-workflow-button") |> render_click()
+
+      refute has_element?(view, "#confirm-delete-workflow")
+      refute has_element?(view, "#workflow-#{draft.id}")
+      assert has_element?(view, "#workflow-#{other.id}")
+      assert {:error, _gone} = Composer.get_draft(draft.id)
+    end
+
+    test "a stale or bogus delete request leaves the page working", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+      render_hook(view, "ask_delete", %{"id" => Ecto.UUID.generate()})
+      refute has_element?(view, "#confirm-delete-workflow")
+      render_hook(view, "delete", %{})
+      assert has_element?(view, "#drafts")
+    end
   end
 
   test "hostile events leave the page alive", %{conn: conn} do

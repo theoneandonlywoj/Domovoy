@@ -15,7 +15,8 @@ defmodule DomovoyWeb.DashboardComponents do
   @meta "text-xs text-muted"
 
   @doc """
-  The panel's search field: a magnifier label, the text input and `⌘` `K` hints. It sends
+  The panel's search field: a magnifier label, the text input and `⌘` `K` hints, shown only
+  while `?` hints are on. It sends
   `search` as you type, debounced. The wrapper carries the `search.focus` key and
   `data-shortcut-focus`, so `/` and Cmd/Ctrl+K focus the input.
 
@@ -50,8 +51,8 @@ defmodule DomovoyWeb.DashboardComponents do
           aria-keyshortcuts={"#{Keymap.aria(Keymap.key("search.focus"))} Meta+K Control+K"}
           class="h-10 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
         />
-        <kbd class="dashboard-kbd hidden sm:inline-block">⌘</kbd>
-        <kbd class="dashboard-kbd hidden sm:inline-block">K</kbd>
+        <kbd class="dashboard-kbd">⌘</kbd>
+        <kbd class="dashboard-kbd">K</kbd>
       </div>
     </.form>
     """
@@ -81,6 +82,197 @@ defmodule DomovoyWeb.DashboardComponents do
         <.icon name="hero-x-mark-micro" class="size-4" />
       </.link>
     </span>
+    """
+  end
+
+  @doc """
+  The floating New workflow button at the bottom right, with `c w` (`new.workflow`), and the
+  form it opens above itself: a title and Create. Esc or Cancel closes the form and gives focus
+  back to the button; Enter or Cmd/Ctrl+Enter creates. The form is always rendered (hidden until opened) and stays open while
+  the title has an error.
+  """
+  attr :form, Phoenix.HTML.Form, required: true, doc: "a form `as: :draft` with a `title` field"
+
+  def new_workflow(assigns) do
+    ~H"""
+    <div
+      id="dashboard-new-workflow-dock"
+      class="fixed right-8 bottom-8 z-10 flex flex-col items-end gap-3"
+    >
+      <div
+        id="dashboard-new-workflow-panel"
+        class={[
+          "dashboard-popover w-[min(22.5rem,calc(100vw-4rem))] flex-col gap-3 p-4",
+          if(@form.errors == [], do: "hidden", else: "flex")
+        ]}
+      >
+        <.form
+          for={@form}
+          id="dashboard-new-workflow"
+          phx-submit="create"
+          phx-hook=".NewWorkflowKeys"
+          data-close={close_new_workflow()}
+          class="flex flex-col gap-3"
+        >
+          <.input field={@form[:title]} type="text" label="New workflow" placeholder="Title" required />
+          <div class="flex justify-end gap-2">
+            <button
+              id="dashboard-cancel-workflow"
+              type="button"
+              phx-click={close_new_workflow()}
+              class="soft-btn inline-flex items-center gap-2 px-3 py-1.5 text-sm"
+            >
+              Cancel <kbd class="dashboard-kbd">esc</kbd>
+            </button>
+            <button
+              id="dashboard-create-workflow"
+              type="submit"
+              phx-disable-with="Creating…"
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+              class="soft-btn soft-btn-primary inline-flex items-center gap-2 px-3 py-1.5 text-sm"
+            >
+              Create <kbd class="dashboard-kbd">⌘↵</kbd>
+            </button>
+          </div>
+        </.form>
+        <%!-- Enter submits natively; Cmd/Ctrl+Enter is made explicit, since browsers differ.
+             Esc anywhere in the form (title or buttons) runs `data-close`. A key binding would
+             not do: LiveView fires `phx-keydown` only on the focused element itself. --%>
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".NewWorkflowKeys">
+          export default {
+            mounted() {
+              this.el.addEventListener("keydown", event => {
+                if (event.isComposing) return
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  this.liveSocket.execJS(this.el, this.el.dataset.close)
+                } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  const create = document.getElementById("dashboard-create-workflow")
+                  if (create && !create.disabled) this.el.requestSubmit(create)
+                }
+              })
+            }
+          }
+        </script>
+      </div>
+      <div class="group flex items-center gap-3">
+        <span
+          aria-hidden="true"
+          class="dashboard-popover flex translate-x-1 items-center gap-2 px-2.5 py-1.5 text-sm whitespace-nowrap opacity-0 transition duration-150 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 max-sm:hidden"
+        >
+          New workflow <kbd class="dashboard-kbd">{Keymap.key("new.workflow")}</kbd>
+        </span>
+        <button
+          id="dashboard-new-workflow-open"
+          type="button"
+          aria-label="New workflow"
+          aria-controls="dashboard-new-workflow-panel"
+          phx-click={
+            JS.toggle(to: "#dashboard-new-workflow-panel", display: "flex")
+            |> JS.focus(to: "##{@form[:title].id}")
+          }
+          {Keymap.attrs("new.workflow")}
+          class="dashboard-fab flex size-14 items-center justify-center rounded-full"
+        >
+          <.icon name="hero-plus" class="size-7" />
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp close_new_workflow do
+    JS.hide(to: "#dashboard-new-workflow-panel")
+    |> JS.focus(to: "#dashboard-new-workflow-open")
+  end
+
+  @doc """
+  A card's Delete button, at its top right, outside the card's link. It shows on hover or
+  focus (always on touch) and asks before deleting; focus comes back to it afterwards.
+  """
+  attr :draft, :map, required: true, doc: "a `Domovoy.Composer.Draft`"
+
+  def delete_workflow_button(assigns) do
+    ~H"""
+    <button
+      id={"workflow-#{@draft.id}-delete"}
+      type="button"
+      phx-click={JS.push_focus() |> JS.push("ask_delete", value: %{id: @draft.id})}
+      aria-label={"Delete #{@draft.title}"}
+      class="soft-btn soft-btn-quiet absolute top-3 right-3 flex size-9 items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:text-error"
+    >
+      <.icon name="hero-trash" class="size-4" />
+    </button>
+    """
+  end
+
+  @doc """
+  Asks before a workflow is deleted. Esc or Cancel keeps it; Delete or Cmd/Ctrl+Enter deletes
+  it. Focus starts on Cancel and returns to the card's Delete button when this closes.
+  """
+  attr :draft, :map, default: nil, doc: "the `Domovoy.Composer.Draft` to delete, or nil"
+
+  def confirm_delete_workflow(%{draft: nil} = assigns), do: ~H""
+
+  def confirm_delete_workflow(assigns) do
+    ~H"""
+    <DomovoyWeb.ComposerComponents.modal_scrim focus_id="confirm-delete-workflow-focus">
+      <div
+        id="confirm-delete-workflow"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-delete-workflow-title"
+        aria-describedby="confirm-delete-workflow-body"
+        phx-window-keydown="cancel_delete"
+        phx-key="escape"
+        phx-hook=".ConfirmOnModEnter"
+        class="dashboard-popover w-[min(24rem,calc(100vw-2rem))] space-y-3 p-5"
+      >
+        <h2 id="confirm-delete-workflow-title" class="font-semibold">
+          Delete “{@draft.title}”?
+        </h2>
+        <p id="confirm-delete-workflow-body" class="text-sm text-muted">
+          Its stages and saved inputs go with it. This can't be undone.
+        </p>
+        <div class="flex justify-end gap-2">
+          <button
+            id="cancel-delete-workflow"
+            type="button"
+            phx-mounted={JS.focus()}
+            phx-click="cancel_delete"
+            class="soft-btn inline-flex items-center gap-2 px-3 py-1.5 text-sm"
+          >
+            Cancel <kbd class="dashboard-kbd">esc</kbd>
+          </button>
+          <button
+            id="confirm-delete-workflow-button"
+            type="button"
+            phx-click="delete"
+            phx-disable-with="Deleting…"
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+            class="soft-btn soft-btn-danger inline-flex items-center gap-2 px-3 py-1.5 text-sm"
+          >
+            Delete <kbd class="dashboard-kbd">⌘↵</kbd>
+          </button>
+        </div>
+      </div>
+      <%!-- Esc is the window binding above; Cmd/Ctrl+Enter clicks Delete, as in New workflow. --%>
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".ConfirmOnModEnter">
+        export default {
+          mounted() {
+            this.onKey = event => {
+              if (event.key !== "Enter" || event.isComposing || !(event.metaKey || event.ctrlKey)) return
+              event.preventDefault()
+              const confirm = document.getElementById("confirm-delete-workflow-button")
+              if (confirm && !confirm.disabled) confirm.click()
+            }
+            window.addEventListener("keydown", this.onKey)
+          },
+          destroyed() { window.removeEventListener("keydown", this.onKey) }
+        }
+      </script>
+    </DomovoyWeb.ComposerComponents.modal_scrim>
     """
   end
 
@@ -265,7 +457,8 @@ defmodule DomovoyWeb.DashboardComponents do
       navigate={~p"/dashboard/workflows/#{@draft.id}"}
       class="soft-panel flex h-full flex-col gap-3 p-4"
     >
-      <header class="flex items-center gap-3">
+      <%!-- pr-10 keeps the title and last-run chip clear of the Delete button over this corner. --%>
+      <header class="flex items-center gap-3 pr-10">
         <h2 class="min-w-0 flex-1 truncate text-lg font-medium">{@draft.title}</h2>
         <DomovoyWeb.ComposerRunComponents.summary_chip
           :if={@run}
