@@ -12,6 +12,10 @@ import {PIN_DEFAULT, canPin, clampWidth} from "./panels.js"
 import {actualSize, fitSelection, fitView, initial, panBy, reveal, transform, wheel} from "./viewport.js"
 import {wirePaths} from "./wires.js"
 
+// Focus inside a non-modal dialog, such as the inputs popover, counts as typing: its
+// Escape and Undo belong to the dialog, not to the canvas.
+const typing = target => isEditable(target) || Boolean(target?.closest?.("[role='dialog']"))
+
 const SVG_NS = "http://www.w3.org/2000/svg"
 const NOT_SAVED = "That move wasn't saved, so the card went back."
 const NOT_CONNECTED = "Not connected, so nothing changed."
@@ -700,7 +704,7 @@ export default {
 
   keyDown(event) {
     if (isUndo(event)) {
-      if (!this.readOnly() && !isEditable(event.target) && !document.getElementById("confirm-replace-literal")) {
+      if (!this.readOnly() && !typing(event.target) && !document.getElementById("confirm-replace-literal")) {
         event.preventDefault()
         this.push("undo", {})
       }
@@ -728,7 +732,7 @@ export default {
       outline: document.getElementById("outline-panel")?.hidden === false,
       selection: Boolean(document.getElementById("deselect-node")),
       canvasOnly: Boolean(document.getElementById("exit-canvas-only")),
-      editable: isEditable(event.target),
+      editable: typing(event.target),
     })
 
     if (action === "gesture") this.cancelGesture()
@@ -736,5 +740,10 @@ export default {
     else if (action === "tools" || action === "outline" || action === "selection" || action === "canvasOnly") {
       ESCAPE_BUTTONS[action].map(id => document.getElementById(id)).find(Boolean)?.click()
     }
+
+    // LiveView's own window listener has already hidden the dialog. Drop the focus it
+    // held, so the next Escape reaches the canvas.
+    const dialog = event.target?.closest?.("[role='dialog']")
+    if (dialog?.hidden) event.target.blur?.()
   },
 }

@@ -72,6 +72,19 @@ defmodule DomovoyWeb.ComposerRetainedRunLiveTest do
 
   defp core_run_calls(fun), do: for({name, _args} <- CoreCallTrace.calls(fun), do: name)
 
+  # Every `/composer` link inside the dashboard must be the export download, the only
+  # exit the dashboard has.
+  defp hrefs_leak?(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("a[href]")
+    |> LazyHTML.attribute("href")
+    |> Enum.any?(fn href ->
+      String.starts_with?(href, "/composer") and not String.ends_with?(href, "/export")
+    end)
+  end
+
   test "a run with a draft is titled by the draft, whatever the page title", %{conn: conn} do
     draft = draft!(leak_run(), "Leak")
     {:ok, values} = RunInputs.parse(draft.document, %{"secret" => "s", "mode" => "succeed"})
@@ -197,5 +210,65 @@ defmodule DomovoyWeb.ComposerRetainedRunLiveTest do
     # An unknown stage goes back to the run's workflow on the same route.
     render_patch(view, ~p"/composer/runs/#{run_id}/stages/nope")
     assert_patch(view, ~p"/composer/runs/#{run_id}")
+  end
+
+  describe "in the dashboard" do
+    test "a run with a draft goes through that draft", %{conn: conn} do
+      draft = draft!(leak_run(), "Leak")
+      {:ok, values} = RunInputs.parse(draft.document, %{"secret" => "s", "mode" => "succeed"})
+      {:ok, run_id} = Composer.start_run(start_attrs(draft, values))
+      await_phase(open!(run_id), "finished")
+
+      to = ~p"/dashboard/workflows/#{draft.id}?#{[run: run_id]}"
+
+      assert {:error, {:live_redirect, %{to: ^to}}} =
+               live(conn, ~p"/dashboard/workflows/runs/#{run_id}")
+
+      stage_to = ~p"/dashboard/workflows/#{draft.id}/stages/main?#{[run: run_id]}"
+
+      assert {:error, {:live_redirect, %{to: ^stage_to}}} =
+               live(conn, ~p"/dashboard/workflows/runs/#{run_id}/stages/main")
+    end
+
+    test "a malformed or unknown id, and runs off, go to dashboard workflows with no Core call",
+         %{conn: conn} do
+      run_id = orphaned_run()
+
+      calls =
+        core_run_calls(fn ->
+          for id <- ["not-a-uuid", Ecto.UUID.generate()] do
+            assert {:error, {:live_redirect, %{to: "/dashboard/workflows", flash: flash}}} =
+                     live(conn, ~p"/dashboard/workflows/runs/#{id}")
+
+            assert flash["error"] == "That run doesn't exist."
+          end
+
+          Application.put_env(:domovoy, :composer_runs_enabled, false)
+
+          assert {:error, {:live_redirect, %{to: "/dashboard/workflows", flash: flash}}} =
+                   live(conn, ~p"/dashboard/workflows/runs/#{run_id}")
+
+          assert flash["error"] == "Runs are turned off on this host."
+        end)
+
+      assert calls == []
+    end
+
+    test "an orphaned run keeps its stage links in the dashboard", %{conn: conn} do
+      run_id = orphaned_run()
+
+      {:ok, view, _html} = live(conn, ~p"/dashboard/workflows/runs/#{run_id}")
+      render_async(view, 5_000)
+
+      assert has_element?(
+               view,
+               "#vertex-main-open[href^='/dashboard/workflows/runs/#{run_id}/stages/main']"
+             )
+
+      view |> element("#vertex-main-open") |> render_click()
+      path = assert_patch(view)
+      assert String.starts_with?(path, "/dashboard/workflows/runs/#{run_id}/stages/main")
+      refute hrefs_leak?(view)
+    end
   end
 end

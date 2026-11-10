@@ -22,7 +22,7 @@ defmodule DomovoyWeb.ComposerLive.RunEvents do
   import Phoenix.Component, only: [assign: 2, assign: 3, to_form: 2]
   import Phoenix.LiveView
 
-  import DomovoyWeb.ComposerComponents, only: [composer_path: 3, run_link: 4]
+  import DomovoyWeb.ComposerComponents, only: [composer_path: 5, drafts_path: 1, run_link: 5]
 
   alias Domovoy.Composer
   alias Domovoy.Composer.Issue
@@ -132,7 +132,7 @@ defmodule DomovoyWeb.ComposerLive.RunEvents do
   def gone(socket) do
     socket
     |> put_flash(:error, "That draft doesn't exist anymore.")
-    |> push_navigate(to: ~p"/composer")
+    |> push_navigate(to: drafts_path(socket.assigns.shell))
   end
 
   @doc """
@@ -493,7 +493,10 @@ defmodule DomovoyWeb.ComposerLive.RunEvents do
   # Every run-page patch keeps the page's stage, run, node, `gen` and `scope`, but for
   # what `query` sets, so no patch drops another param.
   @spec run_page_path(socket :: Socket.t(), query :: keyword()) :: String.t()
-  defp run_page_path(%{assigns: %{draft: draft, stage: stage, selected: node, run: run}}, query) do
+  defp run_page_path(
+         %{assigns: %{shell: shell, draft: draft, stage: stage, selected: node, run: run}},
+         query
+       ) do
     draft_id = draft && draft.id
 
     generation =
@@ -503,7 +506,7 @@ defmodule DomovoyWeb.ComposerLive.RunEvents do
       end
 
     current = [node: node, gen: generation, scope: if(is_integer(run.scope), do: run.scope)]
-    run_link(draft_id, stage, run.id, Keyword.merge(current, query))
+    run_link(shell, draft_id, stage, run.id, Keyword.merge(current, query))
   end
 
   # A graph scope needs a run past generation 0, which is when it offers the control.
@@ -1346,7 +1349,9 @@ defmodule DomovoyWeb.ComposerLive.RunEvents do
 
         socket
         |> assign(start: nil, panel: nil, surface: "canvas")
-        |> push_patch(to: composer_path(socket.assigns.draft.id, stage, id))
+        |> push_patch(
+          to: composer_path(socket.assigns.shell, socket.assigns.draft.id, stage, id, [])
+        )
 
       {:error, {:input_error, name}} ->
         assign(socket, :start, %{

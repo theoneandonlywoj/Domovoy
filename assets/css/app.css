@@ -18,36 +18,36 @@
   themes: false;
 }
 
-/* The one theme: Tokyo Night Storm as dark soft UI. Every surface is one colour, and depth
-   comes only from the paired shadows below. */
+/* The one theme: Onyx Gloss. Lacquered near-black surfaces, each with a glass sheen and a
+   gradient hairline edge, and champagne gold for primary and selection. */
 @plugin "daisyui/packages/bundle/daisyui-theme" {
-  name: "tokyo-night";
+  name: "onyx-gloss";
   default: true;
   prefersdark: false;
   color-scheme: "dark";
-  --color-base-100: #24283b;
-  --color-base-200: #24283b;
-  --color-base-300: #292e42;
-  --color-base-content: #c0caf5;
-  --color-primary: #7aa2f7;
-  --color-primary-content: #1a1b26;
-  --color-secondary: #414868;
-  --color-secondary-content: #c0caf5;
-  --color-accent: #bb9af7;
-  --color-accent-content: #1a1b26;
-  --color-neutral: #c0caf5;
-  --color-neutral-content: #1f2335;
-  --color-info: #7dcfff;
-  --color-info-content: #1a1b26;
-  --color-success: #9ece6a;
-  --color-success-content: #1a1b26;
-  --color-warning: #e0af68;
-  --color-warning-content: #1a1b26;
-  --color-error: #f7768e;
-  --color-error-content: #1a1b26;
+  --color-base-100: #0c0c0e;
+  --color-base-200: #131316;
+  --color-base-300: #1c1c21;
+  --color-base-content: #efe8d8;
+  --color-primary: #e6c878;
+  --color-primary-content: #1b1608;
+  --color-secondary: #2a2a30;
+  --color-secondary-content: #efe8d8;
+  --color-accent: #fff6df;
+  --color-accent-content: #1b1608;
+  --color-neutral: #1c1c21;
+  --color-neutral-content: #efe8d8;
+  --color-info: #93abc9;
+  --color-info-content: #0c0c0e;
+  --color-success: #7fbf8a;
+  --color-success-content: #0c0c0e;
+  --color-warning: #e0954a;
+  --color-warning-content: #0c0c0e;
+  --color-error: #e07070;
+  --color-error-content: #0c0c0e;
   --radius-selector: 0.5rem;
-  --radius-field: 0.75rem;
-  --radius-box: 1.25rem;
+  --radius-field: 11px;
+  --radius-box: 18px;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -56,10 +56,11 @@
 }
 
 @theme static {
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --color-sunken: #1f2335;
-  --color-muted: #a9b1d6;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, monospace;
+  --font-display: "Bodoni Moda", "Didot", serif;
+  --color-sunken: #070708;
+  --color-muted: #a8a191;
 }
 
 /* Add variants based on LiveView classes */
@@ -75,95 +76,112 @@
 
 /* Self-hosted, unmodified: priv/static/fonts holds the files and their licences. */
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "Bodoni Moda";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 900;
   font-display: swap;
-  src: url(/fonts/ibm-plex-mono/ibm-plex-mono-400-latin-ext.woff2) format("woff2");
+  src: url(/fonts/bodoni-moda/bodoni-moda-var-latin-ext.woff2) format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "Bodoni Moda";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 900;
   font-display: swap;
-  src: url(/fonts/ibm-plex-mono/ibm-plex-mono-400-latin.woff2) format("woff2");
+  src: url(/fonts/bodoni-moda/bodoni-moda-var-latin.woff2) format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
     U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "DM Sans";
   font-style: normal;
-  font-weight: 500;
+  font-weight: 100 1000;
   font-display: swap;
-  src: url(/fonts/ibm-plex-mono/ibm-plex-mono-500-latin-ext.woff2) format("woff2");
+  src: url(/fonts/dm-sans/dm-sans-var-latin-ext.woff2) format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "DM Sans";
   font-style: normal;
-  font-weight: 500;
+  font-weight: 100 1000;
   font-display: swap;
-  src: url(/fonts/ibm-plex-mono/ibm-plex-mono-500-latin.woff2) format("woff2");
+  src: url(/fonts/dm-sans/dm-sans-var-latin.woff2) format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
     U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "DM Mono";
   font-style: normal;
-  font-weight: 100 700;
+  font-weight: 400;
   font-display: swap;
-  src: url(/fonts/ibm-plex-sans/ibm-plex-sans-var-latin-ext.woff2) format("woff2");
+  src: url(/fonts/dm-mono/dm-mono-400-latin-ext.woff2) format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "DM Mono";
   font-style: normal;
-  font-weight: 100 700;
+  font-weight: 400;
   font-display: swap;
-  src: url(/fonts/ibm-plex-sans/ibm-plex-sans-var-latin.woff2) format("woff2");
+  src: url(/fonts/dm-mono/dm-mono-400-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/fonts/dm-mono/dm-mono-500-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/fonts/dm-mono/dm-mono-500-latin.woff2) format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
     U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
-  --soft-focus-on-primary: #c0caf5;
-  --soft-selected-bg: #2e3c64;
-  --soft-link: #7dcfff;
-  --soft-link-hover: #b4f9f8;
-  --soft-pill-active-fg: #7aa2f7;
-  --soft-pill-active-bg: #282f45;
-  --soft-pill-failed-fg: #f7768e;
-  --soft-pill-failed-bg: #3b2936;
-  --soft-scrim: rgb(26 27 38 / 60%);
+  --soft-selected-bg: #2d2719;
+  --soft-link: #ecd59a;
+  --soft-link-hover: #fff1c8;
+  --soft-pill-active-fg: #e6c878;
+  --soft-pill-active-bg: #262113;
+  --soft-pill-failed-fg: #e07070;
+  --soft-pill-failed-bg: #2a1616;
+  --soft-scrim: rgb(0 0 0 / 65%);
 
-  --soft-radius-btn: 12px;
-  --soft-radius-panel: 20px;
-  --soft-radius-field: 12px;
+  --soft-radius-btn: 11px;
+  --soft-radius-panel: 18px;
+  --soft-radius-field: 11px;
 
-  --soft-shadow-panel: 9px 9px 20px #181a28, -9px -9px 20px #30354f;
-  --soft-shadow-btn: 4px 4px 10px #181a28, -4px -4px 10px #30354f;
-  --soft-shadow-glow: 0 0 18px rgba(122, 162, 247, .35), 4px 4px 10px #181a28;
-  --soft-shadow-sunken: inset 4px 4px 9px #181a28, inset -4px -4px 9px #30354f;
-  --soft-shadow-socket: 2px 2px 5px #181a28, -2px -2px 5px #30354f;
+  /* Gloss: a sheen over a fill, inside a gradient hairline edge drawn on the border box.
+     A surface sets `--gloss-fill` and `--gloss-edge` on itself. */
+  --gloss-fill: var(--color-base-200);
+  --gloss-sheen: linear-gradient(180deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 0%) 42%);
+  --gloss-edge-default: linear-gradient(160deg, rgb(230 200 120 / 55%), rgb(255 255 255 / 8%) 35%,
+                                        rgb(255 255 255 / 3%) 65%, rgb(230 200 120 / 25%));
+  --gloss-edge: var(--gloss-edge-default);
+  --gloss-gold: linear-gradient(180deg, #f4dfa0 0%, #e6c878 48%, #c9a253 100%);
+  --gloss-glow: 0 0 22px 2px rgb(230 200 120 / 38%);
+
+  --soft-shadow-panel: 0 20px 44px -22px rgb(0 0 0 / 85%);
+  --soft-shadow-btn: 0 6px 14px -8px rgb(0 0 0 / 80%);
+  --soft-shadow-glow: 0 0 20px rgb(230 200 120 / 28%), var(--soft-shadow-btn);
+  --soft-shadow-sunken: inset 0 1px 3px rgb(0 0 0 / 70%);
+  --soft-shadow-socket: 0 0 0 2px var(--color-base-100);
 
   /* Wires: value lines in muted ink, After and Rerun in their own hue and dashed. */
-  --soft-wire: #a9b1d6;
-  --soft-wire-after: #73daca;
-  --soft-wire-rerun: #e0af68;
-}
-
-/* Below lg the soft shadows are about halved. */
-@media (width < 64rem) {
-  :root {
-    --soft-shadow-panel: 5px 5px 10px #181a28, -5px -5px 10px #30354f;
-    --soft-shadow-btn: 2px 2px 5px #181a28, -2px -2px 5px #30354f;
-    --soft-shadow-glow: 0 0 10px rgba(122, 162, 247, .35), 2px 2px 5px #181a28;
-    --soft-shadow-sunken: inset 2px 2px 5px #181a28, inset -2px -2px 5px #30354f;
-  }
+  --soft-wire: #a8a191;
+  --soft-wire-after: #8fbfa8;
+  --soft-wire-rerun: #d9773a;
 }
 
 @layer base {
@@ -178,6 +196,11 @@
     line-height: 1.45;
   }
   h1, h2, h3 { font-weight: 600; }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: .01em;
+  }
   ::selection {
     background-color: var(--soft-selected-bg);
     color: var(--color-base-content);
@@ -185,72 +208,97 @@
 }
 
 /* The app's own pieces. A utility in markup wins over these.
-   `--tw-shadow` keeps the soft shadow under a `ring-*` state. */
+   `--tw-shadow` keeps the soft shadow under a `ring-*` state.
+   A glossy surface paints its fill as a gradient layer, so set `--gloss-fill`, not a `bg-*`. */
 @layer components {
   .soft-panel, .soft-row {
-    border: 1px solid var(--color-base-100);
-    background-color: var(--color-base-100);
+    border: 1px solid transparent;
+    background: var(--gloss-sheen) padding-box,
+                linear-gradient(var(--gloss-fill), var(--gloss-fill)) padding-box,
+                var(--gloss-edge) border-box;
   }
   .soft-panel {
+    --gloss-fill: var(--color-base-200);
     border-radius: var(--soft-radius-panel);
     box-shadow: var(--soft-shadow-panel);
     --tw-shadow: var(--soft-shadow-panel);
   }
-  /* A panel inside a panel, one shadow step down so neighbours don't run together. */
+  /* A running card glows; in this layer, so a `ring-primary` still composes with it. */
+  article[data-run-status="running"] {
+    --tw-shadow: var(--soft-shadow-panel), var(--gloss-glow);
+    box-shadow: var(--tw-shadow);
+  }
+  /* A panel inside a panel, one step lighter so neighbours don't run together. */
   .soft-row {
+    --gloss-fill: var(--color-base-300);
     border-radius: var(--soft-radius-btn);
     box-shadow: var(--soft-shadow-btn);
     --tw-shadow: var(--soft-shadow-btn);
   }
   .soft-tray {
     border-radius: var(--soft-radius-panel);
-    background-color: var(--color-base-100);
+    background-color: var(--color-sunken);
     box-shadow: var(--soft-shadow-sunken);
   }
 
   .soft-btn {
+    --gloss-fill: var(--color-base-100);
     display: inline-block;
-    border: 1px solid var(--color-base-100);
+    border: 1px solid transparent;
     border-radius: var(--soft-radius-btn);
-    background-color: var(--color-base-100);
+    background: var(--gloss-sheen) padding-box,
+                linear-gradient(var(--gloss-fill), var(--gloss-fill)) padding-box,
+                var(--gloss-edge) border-box;
     box-shadow: var(--soft-shadow-btn);
     font-weight: 500;
     cursor: pointer;
     transition: color 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
   }
-  .soft-btn:hover { background-color: var(--color-sunken); }
-  .soft-btn:active, .soft-btn[aria-pressed="true"] { box-shadow: var(--soft-shadow-sunken); }
-  .soft-btn[aria-pressed="true"] {
-    border-color: var(--color-primary);
-    background-color: var(--soft-selected-bg);
+  .soft-btn:hover { --gloss-fill: var(--color-base-300); }
+  .soft-btn:active { translate: 0 1px; }
+  .soft-btn-primary {
+    border-color: transparent;
+    background: var(--gloss-sheen) padding-box, var(--gloss-gold) border-box;
+    box-shadow: var(--soft-shadow-glow);
+    color: var(--color-primary-content);
   }
+  .soft-btn-primary:hover { opacity: 0.9; }
+  /* A quiet button shows an edge only on hover and when pressed or current. */
+  .soft-btn-quiet {
+    --gloss-edge: linear-gradient(transparent, transparent);
+    border-radius: var(--radius-selector);
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+  .soft-btn-quiet:hover {
+    --gloss-edge: var(--gloss-edge-default);
+    color: var(--color-base-content);
+  }
+  .soft-btn-danger {
+    border-color: var(--color-error);
+    color: var(--color-error);
+  }
+  /* After every hover rule, so a hovered pressed button stays gold. */
+  .soft-btn:is([aria-pressed="true"], [aria-current="true"], [aria-current="page"]) {
+    --gloss-fill: var(--soft-selected-bg);
+    --gloss-edge: linear-gradient(var(--color-primary), var(--color-primary));
+  }
+  /* After the pressed rule, so disabled wins over it. */
   .soft-btn:disabled {
-    background-color: var(--color-base-100);
+    --gloss-fill: var(--color-base-100);
     box-shadow: none;
     color: var(--color-muted);
     cursor: not-allowed;
     opacity: 0.6;
   }
-  .soft-btn-primary {
-    border-color: var(--color-primary);
-    background-color: var(--color-primary);
-    box-shadow: var(--soft-shadow-glow);
-    color: var(--color-primary-content);
-  }
-  .soft-btn-primary:hover { background-color: var(--color-primary); opacity: 0.9; }
-  .soft-btn-primary:active { box-shadow: var(--soft-shadow-sunken); }
-  .soft-btn-quiet {
-    border-radius: var(--radius-selector);
+  .soft-btn-primary:disabled {
+    background: linear-gradient(var(--color-base-100), var(--color-base-100)) padding-box,
+                var(--gloss-edge-default) border-box;
     color: var(--color-muted);
-    font-weight: 400;
-  }
-  .soft-btn-quiet:hover { color: var(--color-base-content); }
-  .soft-btn-danger {
-    border-color: var(--color-error);
-    color: var(--color-error);
+    box-shadow: none;
   }
 
-  /* A card's name: pressed in when the card is selected. */
+  /* A card's name: tinted and edged in gold when the card is selected. */
   .soft-grip {
     margin: -0.25rem -0.5rem;
     padding: 0.25rem 0.5rem;
@@ -260,7 +308,7 @@
   .soft-grip:hover { color: var(--color-primary); }
   .soft-grip[aria-pressed="true"] {
     background-color: var(--soft-selected-bg);
-    box-shadow: var(--soft-shadow-sunken);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
     color: var(--color-base-content);
   }
 
@@ -294,10 +342,9 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
-  :where(.soft-btn-primary:focus-visible) { outline-color: var(--soft-focus-on-primary); }
 
   :where(.input, .select, .textarea) {
-    border-color: var(--color-base-100);
+    border-color: var(--color-base-300);
     border-radius: var(--soft-radius-field);
     background-color: var(--color-sunken);
     box-shadow: var(--soft-shadow-sunken);
@@ -315,8 +362,9 @@
   }
   :where(.label, .fieldset-legend) { color: var(--color-muted); }
 
+  /* daisyUI's `.alert` takes its edge colour from this variable, and beats a `border` here. */
   :where(.alert) {
-    border: 0;
+    --alert-border-color: color-mix(in oklab, var(--color-primary) 45%, transparent);
     border-radius: var(--soft-radius-panel);
     background-color: var(--color-neutral);
     box-shadow: var(--soft-shadow-panel);
@@ -368,6 +416,55 @@
 /* Canvas only: the headers, notices and panels give way to the canvas and its status. */
 #composer[data-canvas-only] > .soft-panel,
 #composer[data-canvas-only] .workspace-panel { display: none; }
+#dashboard-shell:has(#composer[data-canvas-only]) #dashboard-drawer { display: none; }
+#dashboard-shell:has(#composer[data-canvas-only]) #dashboard-main { padding-inline-start: 0; }
+
+/* Dashboard drawer. Collapse is on <html>, from a cookie; below md it is a fixed 4rem rail
+   that widens into an overlay. The range syntax puts a fractional width on exactly one side,
+   as the JS matchMedia does. */
+@media (width >= 48rem) {
+  html[data-drawer="collapsed"] #dashboard-drawer { width: 4rem; padding-inline: .5rem; }
+  html[data-drawer="collapsed"] .dashboard-nav { justify-content: center; padding-inline: 0; }
+  html[data-drawer="collapsed"] :is(.dashboard-nav-label, .dashboard-brand) { display: none; }
+  html[data-drawer="collapsed"] #dashboard-toggle { margin-inline: auto; }
+}
+/* Main reserves the rail's 4rem, so opening only widens the drawer over the scrim and nothing
+   behind it reflows. Open is keyed on `aria-modal`, which JS.set_attribute sets at once. Each
+   override is one selector part more specific than the rule it overrides. */
+@media (width < 48rem) {
+  #dashboard-drawer { position: fixed; inset-block: 0; left: 0; z-index: 30; margin: 0; width: 4rem; padding-inline: .5rem; }
+  #dashboard-main { padding-inline-start: 4rem; }
+  #dashboard-drawer .dashboard-nav-label, #dashboard-drawer .dashboard-brand { display: none; }
+  #dashboard-drawer .dashboard-nav { justify-content: center; padding-inline: 0; }
+  #dashboard-toggle { margin-inline: auto; }
+  #dashboard-drawer[aria-modal="true"] { width: 16rem; padding-inline: .75rem; }
+  #dashboard-drawer[aria-modal="true"] .dashboard-nav-label,
+  #dashboard-drawer[aria-modal="true"] .dashboard-brand { display: revert; }
+  #dashboard-drawer[aria-modal="true"] .dashboard-nav { justify-content: flex-start; padding-inline: .75rem; }
+  #dashboard-drawer[aria-modal="true"] #dashboard-toggle { margin-inline: 0; }
+  #dashboard-drawer[aria-modal="true"] ~ #dashboard-scrim { display: block; }
+}
+.dashboard-brand { background: var(--gloss-gold); background-clip: text; color: transparent; }
+.dashboard-nav[aria-current="page"] {
+  --gloss-fill: var(--soft-selected-bg);
+  --gloss-edge: linear-gradient(var(--color-primary), var(--color-primary));
+  color: var(--color-primary);
+}
+.dashboard-progress { background: var(--gloss-gold); box-shadow: var(--gloss-glow); }
+
+/* Shortcut hints: `?` sets html[data-hints="on"]; each [data-shortcut] shows its key. */
+:where(html[data-hints="on"] [data-shortcut]) { position: relative; }
+:where(html[data-hints="on"] [data-shortcut])::after {
+  content: attr(data-shortcut);
+  position: absolute; top: .125rem; right: .125rem; z-index: 5;
+  padding: 0 .3rem; font: 500 .6875rem/1.1rem var(--font-mono); white-space: nowrap;
+  background: var(--color-base-300); color: var(--color-base-content);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  border-radius: 999px; pointer-events: none; transition: opacity 120ms ease-out;
+}
+:where(html:has([aria-modal="true"]:not(#dashboard-drawer)) [data-shortcut])::after { display: none; }
+:where(html[data-hints-prefix="g"] [data-shortcut]:not([data-shortcut^="g "]))::after { opacity: .35; }
+@media (prefers-reduced-motion: reduce) { :where(html[data-hints="on"] [data-shortcut])::after { transition: none; } }
 
 /* Composer canvas */
 #stage-canvas { cursor: grab; }
@@ -420,7 +517,10 @@
 
 /* While a connection is dragged: what fits stands out, and the rest recedes. */
 [data-wiring] li[data-field] > .socket-in { opacity: 0.35; }
-[data-wiring] li[data-field]:has(> [data-compat]) { background-color: var(--soft-selected-bg); }
+[data-wiring] li[data-field]:has(> [data-compat]) {
+  --gloss-fill: var(--soft-selected-bg);
+  background-color: var(--soft-selected-bg);
+}
 [data-wiring] .socket[data-compat] { opacity: 1; background: var(--color-primary); transform: scale(1.3); }
 [data-wiring] article:has(> header > [data-compat]) { outline: 2px solid color-mix(in oklab, var(--color-primary) 50%, transparent); }
 [data-wiring] [data-drop-hover] { outline: 2px solid var(--color-primary); outline-offset: -2px; }
@@ -428,12 +528,17 @@
 
 /* A run on the canvas. Status is an outline, which takes no layout space, and a word. */
 :root {
-  --run-running: #7aa2f7;
-  --run-done: #9ece6a;
-  --run-attention: #e0af68;
-  --run-failed: #f7768e;
+  --run-running: var(--color-primary);
+  --run-done: var(--color-success);
+  --run-attention: #d9773a;
+  --run-failed: var(--color-error);
 }
-article[data-run-status="running"] { outline: 2px solid var(--run-running); }
+/* Running glows gold: an outline 3px out, pulsing, and the glow in the components layer. */
+article[data-run-status="running"] {
+  outline: 2px solid var(--run-running);
+  outline-offset: 3px;
+  animation: run-glow 2.4s ease-in-out infinite;
+}
 article[data-run-status="succeeded"] { outline: 1px solid var(--run-done); }
 article[data-run-status="needs_you"] {
   outline: 2px solid var(--run-attention);
@@ -462,7 +567,11 @@ article[data-run-status="not_executed"] header .font-semibold { color: var(--col
   color: var(--color-muted);
 }
 .run-pill-card { position: absolute; top: -0.6rem; right: 0.75rem; z-index: 2; }
-.run-pill[data-run-pill="running"] { color: var(--run-running); }
+.run-pill[data-run-pill="running"] {
+  color: var(--run-running);
+  background-color: var(--soft-pill-active-bg);
+  box-shadow: 0 0 12px rgb(230 200 120 / 35%);
+}
 .run-pill[data-run-pill="succeeded"] { color: var(--run-done); }
 .run-pill[data-run-pill="needs_you"], .run-pill[data-run-pill="uncertain"] { color: var(--run-attention); }
 .run-pill[data-run-pill="failed"] { color: var(--run-failed); }
@@ -470,6 +579,7 @@ article[data-run-status="not_executed"] header .font-semibold { color: var(--col
 
 @keyframes run-spin { to { transform: rotate(360deg); } }
 @keyframes run-pulse { from { outline-offset: 6px; } to { outline-offset: 2px; } }
+@keyframes run-glow { 50% { outline-color: rgb(230 200 120 / 45%); } }
 
 /* The trace: wires the run travelled stand out, and the routes it didn't take recede. */
 [data-read-only] .wire { opacity: 0.35; }
@@ -489,9 +599,10 @@ article[data-run-status="not_executed"] header .font-semibold { color: var(--col
   .run-spin, article[data-run-status] { animation: none; }
 }
 
-/* Forced colours drop the shadows and the fills: the invisible borders above then show as
-   edges, and these keep the canvas drawn. */
+/* Forced colours drop the shadows, the fills and the gradient edges: the borders above then
+   show as edges, and these keep the canvas drawn. */
 @media (forced-colors: active) {
+  .soft-panel, .soft-row, .soft-btn { border-color: CanvasText; }
   .wire { stroke: CanvasText; }
   .socket {
     forced-color-adjust: none;

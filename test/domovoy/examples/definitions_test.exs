@@ -260,8 +260,8 @@ defmodule Domovoy.Examples.DefinitionsTest do
       assert workflow.vertices == worktree_vertices()
 
       assert workflow.inputs == %{
-               "repository_path" => %{type: Type.Directory, required: false},
-               "branch_name" => %{type: Type.String, required: false},
+               "repository_path" => %{type: Type.Directory, required: true},
+               "branch_name" => %{type: Type.String, required: true},
                "base_branch" => %{type: Type.String, default: "main", required: false}
              }
     end

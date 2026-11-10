@@ -30,6 +30,7 @@ defmodule Domovoy.Composer.RunsTest do
     encode_event: 1,
     get: 2,
     get_by_id: 1,
+    latest: 1,
     open: 1,
     page: 3,
     pause: 2,
@@ -164,6 +165,7 @@ defmodule Domovoy.Composer.RunsTest do
     test "the composer's delegates refuse too" do
       assert Composer.start_run(:junk) == {:error, :runs_disabled}
       assert Composer.run_page(%{}, nil, 10) == {:error, :runs_disabled}
+      assert Composer.latest_runs([]) == {:error, :runs_disabled}
       assert Composer.attention_runs(:junk, 5) == {:error, :runs_disabled}
       assert Composer.summarize_run(:junk, :junk) == {:error, :runs_disabled}
       assert Composer.refresh_run_summaries([]) == {:error, :runs_disabled}

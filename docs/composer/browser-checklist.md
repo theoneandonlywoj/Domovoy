@@ -119,6 +119,8 @@ On stage `prepare`, in order:
 
 ## The dark theme
 
+Superseded by Onyx Gloss (2026-11).
+
 Tokyo Night as dark soft UI, walked on 2026-11-05 with headless Chrome at 1600x1000 on port
 4010, by computed style and trusted pointer input.
 
@@ -149,13 +151,156 @@ edge are decorative and below 3:1, so fields keep a visible label.
 Not walked: a real forced-colours mode (only emulated), the halved shadows below `lg`, and how
 the theme looks on a physical display.
 
+## Onyx Gloss
+
+Lacquered near-black with a glass sheen, a gradient hairline edge and champagne gold, walked
+on 2026-11-09 with headless Chrome on port 4011, by computed style. The component rows were
+first read from probe elements injected into `/` with the app's own classes; a second pass
+the same day walked the real pages (Pages row, Running on the canvas row).
+
+| Row | Result | How |
+|---|---|---|
+| Pages | Pass | `/`, `/composer`, `/composer/runs` and `/composer/:id` at 1440, 1280, 1024 and 390 px: body `rgb(12, 12, 14)` on `rgb(239, 232, 216)`, DM Sans, no `data-theme`, no horizontal overflow |
+| Running on the canvas | Pass, forced | On `/composer/:id/stages/estimate_price`, `data-run-status="running"` plus `ring-2 ring-primary` set on a card in DevTools: `box-shadow` holds the gold `0 0 0 2px` ring, the panel shadow and the `0 0 22px 2px` glow; outline solid gold, offset `3px`, animation `run-glow` (screenshot 41) |
+| Surface | Pass | Body background `rgb(12, 12, 14)`, text `rgb(239, 232, 216)`, no `data-theme` attribute |
+| Gloss layers | Pass | `.soft-btn` background image is the sheen over a `rgb(12, 12, 14)` fill layer and the gradient edge; border `transparent`; shadow `0 6px 14px -8px`. A resting primary is the gold gradient with the gold glow and `rgb(27, 22, 8)` text |
+| Pressed and current | Pass | `aria-pressed="true"` and `aria-current="page"` fill `rgb(45, 39, 25)` with a solid gold edge; `box-shadow` has no `inset` |
+| Disabled primary | Pass | Base fill with the default edge, `rgb(168, 161, 145)` text, no shadow: not gold |
+| Running, selected | Pass | `article.soft-panel.ring-2.ring-primary[data-run-status=running]`: the gold `0 0 0 2px` ring, the panel shadow and the `0 0 22px 2px` glow all in `box-shadow`; outline `solid` gold, offset `3px`, animation `run-glow` |
+| Running pill | Pass | Gold text on `rgb(38, 33, 19)` with a soft gold glow |
+| Focus | Pass by value | `2px solid` `--color-accent` `#fff6df`, offset 2px. Not observed with real keyboard focus on a card |
+| Toast | Pass | `rgb(28, 28, 33)` with `rgb(239, 232, 216)` text and a 45% gold edge |
+| Fonts | Pass | DM Sans on the body, Bodoni Moda on `h1`; the loaded faces are `Bodoni Moda 400 900` and `DM Sans 100 1000`. Every font request is under `/fonts/`; the old Plex path is 404 |
+| Single theme | Pass | `phx:theme=light` in localStorage and `prefers-color-scheme: light` emulated: body background unchanged |
+| Reduced motion | Pass, emulated | The running card's animation is `none`; the outline and glow stay |
+| Forced colours | Pass, emulated | Rest and current buttons and the running card keep a solid `CanvasText` border |
+
+Contrast, by the WCAG relative-luminance formula: ink 16.01 on base, 15.19 on panels, 13.90
+on rows, 16.50 on sunken and 12.15 on the selection; muted 7.60 on base, 7.22 on panels,
+6.60 on rows, 7.84 on sunken and 5.77 on the selection; links 12.85 on panels; primary
+label 13.66 / 11.07 / 7.53 across the gold gradient; toast 13.90; focus 18.15 on base and
+13.77 on the selection; error text 5.94 on panels; active and running pill 9.85, failed pill
+5.49, done 9.32, attention 6.38 and muted 7.84 on sunken. Wires on the surface: value 7.60,
+After 9.48, Rerun 6.19, preview 12.00, problem 6.25. The gradient edge is decorative and
+below 3:1 in its middle stops; the pressed edge is solid gold at 12.00.
+
+Not walked: a run with two generations (none in the dev database, so the pressed row is from
+the probe, not `#generation-scope-1`), a node held in `running` by a real run, the topbar
+during navigation, real keyboard focus on a card (headless focus did not match
+`:focus-visible`), a real forced-colours mode and a physical display.
+
+## Dashboard shell — phase 2, 2026-11-09
+
+Walked with headless Chrome 156 through the DevTools protocol against a dev server, with
+trusted mouse and key input, cache disabled. Phases 3–5 extend this section.
+
+| Check | Result |
+|---|---|
+| Desktop collapse, 1440 px | Pass: Collapse narrows `#dashboard-drawer` from 256 to 64 px, labels `display: none`, cookie `domovoy_drawer=collapsed` |
+| Collapse survives navigation | Pass: Projects → Jobs by the drawer link keeps `data-drawer="collapsed"` and 64 px |
+| First paint after reload | Pass: at `DOMContentLoaded` the drawer is already `collapsed` and 64 px, so no expanded flash |
+| Collapsed links keep their name | Pass: `#dashboard-nav-jobs` has `aria-label="Jobs"` |
+| Mobile overlay, 390 px | Pass: hidden (`visibility: hidden`, off-screen) until Menu; Menu sets `role="dialog"`, `aria-modal`, `inert` on `#dashboard-main`, shows the scrim and focuses the first link |
+| Tab inside the overlay | Pass: Tab visits the two links, then the document end, then wraps; nothing in `#dashboard-main` takes focus. No flash was showing |
+| Closing the overlay | Pass: Escape and the scrim each close it and return focus to `#dashboard-menu`; choosing Projects navigates and closes it |
+| Widening with the overlay open | Pass: at 1024 px it closes (`aria-modal` and `inert` removed) and `#dashboard-main` is hit by `elementFromPoint` |
+| Tampered cookie | Pass: `domovoy_drawer=<script>` plus a reload renders `expanded`, 256 px |
+| Jobs URL filter | Pass: `/dashboard/jobs?q=borg&status=running` shows one row, its progress bar at 64 % |
+
+The first walk found that `JS.focus_first` left focus on the body: `JS.add_class` applies
+a frame late, so the drawer was still hidden at the focus attempt, and the retry was
+skipped once `inert` had dropped focus from Menu. The open state is now keyed on
+`aria-modal`, which `JS.set_attribute` sets at once, and the drawer turns visible with no
+transition delay.
+
+Not walked: a physical display, a real phone, a screen reader, and Tab with a flash shown.
+
+### Embedded composer — phase 3, 2026-11-09
+
+Walked the same way on port 4010, on the seeded "Cracow house price review" draft at
+`/dashboard/workflows/<id>`, with the drawer cookie cleared and `composer:pin` removed
+first. Pan was a trusted background drag and zoom a ctrl-wheel, each read from
+`#stage-world`'s transform.
+
+| Check | Result |
+|---|---|
+| 1440 px | Pass: drawer 256 px, canvas 1136x800 from x 288, no page or `<main>` scroll, Workflows `aria-current="page"`; pan (+40, −20) and zoom 1 → 1.5 |
+| 1280 px | Pass: drawer 256 px, canvas 976x658, no scroll; pan and zoom 1 → 1.5 |
+| 1024 px | Pass: drawer 256 px, canvas 720x626, the fit at 0.897; pan and zoom → 1.345 |
+| 390 px | Pass: drawer hidden, canvas 374x586 from x 8, no scroll; pan and zoom 0.373 → 0.559. A drag at the canvas's lower left starts on `#canvas-zoom`, which spans the width here, so the pan was dragged from the top |
+| Pin refused, 1280 px expanded | Pass: workspace 976 px, "Not enough room to pin: the canvas needs at least 600 px.", `aria-pressed="false"`, no `data-pinned`, transform unchanged |
+| Pin after collapsing | Pass: drawer 64 px, workspace 1168 px; Pin docks (`data-pinned`, `aria-pressed="true"`), with pan and zoom unchanged across the collapse and the pin (`translate(98px, 143px) scale(1)`); the selected card wasn't under the inspector |
+| Canvas only | Pass: `#dashboard-drawer` and the header `display: none`, canvas 1408 px; Escape exits and the drawer is back (`flex`) |
+| Overlay over an open outline, 390 px | Pass: Outline then Menu gives `aria-modal`, `inert` main, focus on the first link, outline still open; Escape closes only the drawer (outline open, surface `outline`), focus back on `#dashboard-menu` |
+| Links stay in the dashboard | Pass: a card's Open goes to `/dashboard/workflows/<id>/stages/estimate_price`; no `/composer` href but the run pages and export |
+| Confirmation scrim covers the drawer | Not walked: a confirmation needs an unfinished run or a literal-replacing edit, and the dev data had neither; making one would have changed it |
+
+### Overview and the toggle in the bar — phase 4, 2026-11-09
+
+Walked the same way on port 4010, with cookies cleared first. Menu (`#dashboard-menu`), the
+phone top bar and the bottom Collapse button are gone; `#dashboard-toggle` in
+`#dashboard-drawer-head` replaces all three, so the phase 2 and 3 rows that name
+`#dashboard-menu` now mean the toggle.
+
+| Check | Result |
+|---|---|
+| Desktop collapse, 1440 px | Pass: the toggle narrows the drawer from 256 to 64 px, labels and brand `display: none`, `data-drawer="collapsed"`, cookie `domovoy_drawer=collapsed`; focus stays on the toggle; no `aria-expanded` on desktop |
+| First paint after reload | Pass: at `DOMContentLoaded` the drawer is already 64 px and `collapsed`, so no expanded flash; collapse survives Dashboard → Jobs; the toggle expands it again (256 px, cookie `expanded`) |
+| Phone rail, 390 px | Pass: `#dashboard-drawer` is `position: fixed`, 64 px, icons only; `#dashboard-main` keeps x 0 and width 390 with a 4rem inline-start padding, the tiles start at x 80 |
+| Open by the toggle | Pass: drawer 256 px with labels and brand, `role="dialog"`, `aria-modal`, `inert` main, scrim shown, toggle `aria-expanded="true"`, focus on `#dashboard-nav-dashboard`; main stays at x 0, width 390, so nothing behind it shifts |
+| Closing the overlay | Pass: the toggle, the scrim (a click at x 360) and Escape each close it back to the 64 px rail, `aria-expanded="false"`, focus on `#dashboard-toggle`; choosing Jobs navigates and closes it |
+| Widening with the overlay open | Pass: at 1024 px `aria-modal`, `role` and `inert` are removed, the drawer is static at 256 px, and `elementFromPoint` lands in `#dashboard-main` |
+| Composer, 390 px | Pass: on `/dashboard/workflows/<id>` the rail sits beside the workspace (x 72, 310 px wide after the composer's own padding), no horizontal overflow |
+| Overlay over the outline and the launcher, 390 px | Pass: with surface `outline`, then `launcher`, the toggle opens the overlay; Escape closes only the drawer, the surface and its panel stay open, focus back on the toggle |
+| Results surface | Not walked: `#open-results` needs a run, and the dev draft had none; starting one would have changed the data |
+
+Not walked: a physical display, a real phone and a screen reader.
+
+### Inputs strip — phase 5, 2026-11-10
+
+The workflow inputs, a stage's "From earlier" sources and the add/edit input form moved
+out of the Outline panel into `#inputs-rail`, a strip above `#workspace`, on `/composer/<id>`
+and `/dashboard/workflows/<id>` alike. A run shows no strip; its inputs stay in Steps.
+
+Walked 2026-11-10 in headless Chrome 157.0.8103.39 through CDP (trusted mouse and key
+events, two animation frames before each read), port 4012, on the seeded draft "Create a
+worktree" (`repository_path` Directory, `branch_name` and `base_branch` String with default
+`main`; unchanged from the seed). Routes: `/composer/<id>` at 1440x900 and 390x844,
+`/dashboard/workflows/<id>` at 390x844. Nothing was saved or removed; selecting a card was a
+press and release at one point.
+
+| Check | Result |
+|---|---|
+| Load | Pass, all three: `#inputs-popover` has `hidden`, computed `display: none` |
+| Strip above the graph, 1440 px | Pass: chips wrap in one panel above the canvas; Add input sits at the strip's right |
+| 1024 px | Not walked |
+| 390 px | Pass, both routes: `#inputs-scroller` scrolls (scrollWidth 1968, clientWidth 229 on `/composer`, 165 on the dashboard); `#add-input` and the popover don't, and Add input stays fully visible; `#inputs-rail` computed `overflow-x: visible`; no page overflow (`scrollWidth` 390) |
+| Stage level | Not walked: the walk stayed at the workflow level; covered by the LiveView test |
+| Add input | Pass, all three: with a card selected, Add input removes `hidden` (`display: block`) and focuses the popover itself; the popover lies inside the viewport and above the bottom of `main` (1440: 384x382 at 29,205; 390: 348 wide at x 21; dashboard 390: 284 wide at x 85, right edge 369); `elementFromPoint` at the centre of `#inputs-form`, `#save-input` and `#close-inputs-popover` lands inside the popover; `#workspace` doesn't move or resize |
+| Escape | Pass, all three: Escape inside the popover closes only the popover (`hidden` back, `display: none`); the card stays selected and focus leaves the popover (`body`). A second Escape deselects the card |
+| Edit | Pass, all three: `#input-base_branch-edit` opens the popover with Name `base_branch`, Type String, Default Value `main` |
+| Add input again | Pass, all three: Name empty, Type String, Default None; after Edit `repository_path` (Directory), Add input brings Type back to String. No seeded input is required, so the Required reset is covered by the LiveView test only |
+| Typed, then Add input | Pass, all three: typing `abc` in the focused Name, then Add input, leaves Name empty |
+| Save | Not walked: it would write dev data |
+| Close | Pass, all three: hides the popover and returns focus to `#add-input` |
+| Click-away | Pass, all three: clicking the strip's heading hides the popover |
+| Tools open, 390 px | Known limit, both routes: opened while Tools is open, the popover is covered by `#composer-tools` (both `z-40`, Tools later in the DOM); `elementFromPoint` at the popover misses it |
+| Canvas only | Pass, all three: the strip is `display: none` with the headers and back (`flex`) on exit |
+| A dialog makes it inert | Not walked: the only cancellable dialog here (replace a literal) needs a wire drag onto a literal field, which the walk did not script |
+| Pin rule | Not walked: canvas geometry is untouched by this phase |
+
+Not walked: a physical display, a real phone and a screen reader.
+
 ## Screenshots
 
 In `screenshots/`: `02-mid-drag`, `04-preview`, `05-hover-refused`, `06-rejection`,
 `07-hover-fits`, `09-picker`, `10-after-hover`, `12-confirm-literal`, `13-hyphens`,
 `14-workflow`, `15-stage-walked`, `20-home`, `21-stage-mid-connect`, `22-dialog`,
-`23-draft-list`, `34-cracow-stage-source-nodes`. `14` and `20` onward show the dark theme; the
-rest predate it.
+`23-draft-list`, `34-cracow-stage-source-nodes`. `14`, `20`-`23` and `30`-`34` show the old
+dark theme; the rest predate it. Onyx Gloss, 1440x900: `40-onyx-workflow`,
+`41-onyx-stage-running-selected` (a card forced to running and selected) and `42-onyx-runs`.
+Inputs popover opened by Add input, with a card selected:
+`43-inputs-popover-1440` and `44-inputs-popover-390`.
 
 ## Contextual inspector and Issues/Tools — phase 1, 2026-11-05
 

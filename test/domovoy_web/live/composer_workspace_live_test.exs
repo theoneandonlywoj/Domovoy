@@ -61,10 +61,11 @@ defmodule DomovoyWeb.ComposerWorkspaceLiveTest do
     test "the outline opens and closes by toggling hidden, keeping its forms", %{conn: conn} do
       draft = draft!(scenario_a())
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
-      assert has_element?(view, "#outline-panel[hidden] #inputs-form")
+      assert has_element?(view, "#inputs-rail #inputs-popover #inputs-form")
 
       render_click(element(view, "#open-outline"))
-      assert has_element?(view, "#outline-panel:not([hidden]) #inputs-form")
+      assert has_element?(view, "#inputs-rail #inputs-form")
+      refute has_element?(view, "#outline-panel #inputs-form")
       assert has_element?(view, "#open-outline[aria-expanded='true']")
       assert has_element?(view, "#workspace[data-surface='outline']")
 

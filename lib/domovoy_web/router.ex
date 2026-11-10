@@ -19,13 +19,25 @@ defmodule DomovoyWeb.Router do
 
     get "/", PageController, :home
 
-    live_session :composer do
+    live_session :composer, on_mount: {DomovoyWeb.Shell, :composer} do
       live "/composer", WorkflowsLive, :index
       live "/composer/runs", RunsLive, :index
       live "/composer/runs/:run_id", ComposerLive, :run
       live "/composer/runs/:run_id/stages/:stage", ComposerLive, :run_stage
       live "/composer/:id", ComposerLive, :workflow
       live "/composer/:id/stages/:stage", ComposerLive, :stage
+    end
+
+    live_session :dashboard, on_mount: {DomovoyWeb.Shell, :dashboard} do
+      live "/dashboard", DashboardLive, :dashboard
+      live "/dashboard/projects", DashboardLive, :projects
+      live "/dashboard/jobs", DashboardLive, :jobs
+      live "/dashboard/workflows", DashboardLive, :workflows
+      live "/dashboard/workflows/runs", RunsLive, :index
+      live "/dashboard/workflows/runs/:run_id", ComposerLive, :run
+      live "/dashboard/workflows/runs/:run_id/stages/:stage", ComposerLive, :run_stage
+      live "/dashboard/workflows/:id", ComposerLive, :workflow
+      live "/dashboard/workflows/:id/stages/:stage", ComposerLive, :stage
     end
 
     get "/composer/:id/export", WorkflowExportController, :show

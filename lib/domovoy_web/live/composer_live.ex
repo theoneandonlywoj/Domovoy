@@ -10,7 +10,7 @@ defmodule DomovoyWeb.ComposerLive do
 
   `?run=<id>` shows one run of the draft, read-only, through
   `DomovoyWeb.ComposerLive.RunEvents`, whose hooks deny every edit there.
-  `/composer/runs/<id>` opens a run by its id alone: one with a draft goes to that
+  `/composer/runs/<id>` and `/dashboard/workflows/runs/<id>` open a run by its id alone: one with a draft goes to that
   draft's `?run=`, and one whose draft was deleted shows its snapshot with no draft.
   """
 
@@ -39,7 +39,10 @@ defmodule DomovoyWeb.ComposerLive do
          |> RunEvents.enter_retained(row)}
 
       {:ok, row} ->
-        {:ok, push_navigate(socket, to: composer_path(row.draft_id, params["stage"], row.id))}
+        {:ok,
+         push_navigate(socket,
+           to: composer_path(socket.assigns.shell, row.draft_id, params["stage"], row.id, [])
+         )}
 
       {:error, reason} ->
         message =
@@ -47,7 +50,10 @@ defmodule DomovoyWeb.ComposerLive do
             do: RunEvents.refusal_text(:runs_disabled),
             else: "That run doesn't exist."
 
-        {:ok, socket |> put_flash(:error, message) |> push_navigate(to: ~p"/composer")}
+        {:ok,
+         socket
+         |> put_flash(:error, message)
+         |> push_navigate(to: drafts_path(socket.assigns.shell))}
     end
   end
 
@@ -126,7 +132,9 @@ defmodule DomovoyWeb.ComposerLive do
         {:noreply,
          socket
          |> put_flash(:info, "That run isn't one of this draft's.")
-         |> push_patch(to: composer_path(socket.assigns.draft.id, stage, nil))}
+         |> push_patch(
+           to: composer_path(socket.assigns.shell, socket.assigns.draft.id, stage, nil, [])
+         )}
     end
   end
 
@@ -154,7 +162,9 @@ defmodule DomovoyWeb.ComposerLive do
       {:noreply,
        socket
        |> put_flash(:info, "That isn't a stage of this draft.")
-       |> push_patch(to: run_link(draft_id(socket), nil, run_id(socket)))}
+       |> push_patch(
+         to: run_link(socket.assigns.shell, draft_id(socket), nil, run_id(socket), [])
+       )}
     end
   end
 
@@ -172,7 +182,7 @@ defmodule DomovoyWeb.ComposerLive do
   defp link_params({:noreply, %{assigns: %{run: nil}} = socket}, %{"launch" => "1"} = params) do
     if connected?(socket) do
       stage = if socket.assigns.live_action == :stage, do: socket.assigns.stage
-      path = composer_path(socket.assigns.draft.id, stage, nil)
+      path = composer_path(socket.assigns.shell, socket.assigns.draft.id, stage, nil, [])
       {:noreply, socket |> RunEvents.open_launcher() |> push_patch(to: path, replace: true)}
     else
       link_params({:noreply, socket}, Map.delete(params, "launch"))
@@ -250,7 +260,7 @@ defmodule DomovoyWeb.ComposerLive do
       )
 
     ~H"""
-    <Layouts.app flash={@flash} variant="canvas">
+    <Layouts.app flash={@flash} variant={layout_variant(@shell)} active="workflows">
       <div
         id="composer"
         data-canvas-only={@canvas_only?}
@@ -258,6 +268,7 @@ defmodule DomovoyWeb.ComposerLive do
       >
         <.run_header
           :if={@run}
+          shell={@shell}
           title={if(@draft, do: @draft.title, else: @page_title)}
           draft_id={@draft_id}
           stage={@stage}
@@ -272,6 +283,7 @@ defmodule DomovoyWeb.ComposerLive do
         />
         <.composer_header
           :if={!@run}
+          shell={@shell}
           draft={@draft}
           stage={@stage}
           validity={@validity}
@@ -285,6 +297,13 @@ defmodule DomovoyWeb.ComposerLive do
           launcher?={not is_nil(@start)}
         />
         <.notices conflict={@conflict} rejection={@rejection} />
+        <.input_strip
+          :if={!@run}
+          inputs={@view.inputs}
+          prior={if @stage, do: @view.prior_sources, else: []}
+          form={@input_form}
+          types={@types}
+        />
 
         <div
           id="workspace"
@@ -294,6 +313,7 @@ defmodule DomovoyWeb.ComposerLive do
         >
           <.workflow_canvas
             :if={!@stage}
+            shell={@shell}
             cards={@view.cards}
             edges={@edges}
             selected={@selected}
@@ -323,6 +343,7 @@ defmodule DomovoyWeb.ComposerLive do
           >
             <.run_outline
               :if={@run}
+              shell={@shell}
               draft_id={@draft_id}
               stage={@stage}
               run={@run}
@@ -333,13 +354,6 @@ defmodule DomovoyWeb.ComposerLive do
             />
             <div :if={!@run}>
               <.workflow_settings draft={@draft} document={@document} />
-              <.input_rail
-                inputs={@view.inputs}
-                prior={if @stage, do: @view.prior_sources, else: []}
-                connect?={false}
-                form={@input_form}
-                types={@types}
-              />
               <.add_vertex :if={!@stage} form={@vertex_form} />
               <.catalog_picker
                 :if={@stage}
@@ -352,6 +366,7 @@ defmodule DomovoyWeb.ComposerLive do
               />
               <.recent_runs
                 :if={@runs_enabled?}
+                shell={@shell}
                 runs={@recent_runs}
                 draft_id={@draft.id}
                 stage={@stage}
@@ -386,6 +401,7 @@ defmodule DomovoyWeb.ComposerLive do
 
           <.start_form
             :if={@start}
+            shell={@shell}
             start={@start}
             open?={@panel == "launcher"}
             draft_id={@draft_id}
@@ -452,7 +468,7 @@ defmodule DomovoyWeb.ComposerLive do
                 class="soft-btn soft-btn-quiet px-2 py-1 text-sm"
               >Close</button>
             </div>
-            <.issue_list rows={@issue_rows} draft_id={@draft.id} />
+            <.issue_list shell={@shell} rows={@issue_rows} draft_id={@draft.id} />
             <.loop_limits :if={!@stage && @view.loop?} />
             <.connect_to :if={@stage} connect={@connect} />
             <.clear_input_preview :if={@stage} clear={@clear} />
@@ -496,7 +512,7 @@ defmodule DomovoyWeb.ComposerLive do
         {:noreply,
          socket
          |> reset_draft(latest)
-         |> push_patch(to: composer_path(latest.id, stage, nil))}
+         |> push_patch(to: composer_path(socket.assigns.shell, latest.id, stage, nil, []))}
 
       :error ->
         {:noreply, RunEvents.gone(socket)}
@@ -532,6 +548,10 @@ defmodule DomovoyWeb.ComposerLive do
     kept? = socket.assigns.rejection || socket.assigns.conflict
     form = if kept?, do: input_form(params), else: input_form(%{})
     {:noreply, assign(socket, :input_form, form)}
+  end
+
+  def handle_event("new_input", _params, socket) do
+    {:noreply, assign(socket, :input_form, input_form(%{}))}
   end
 
   def handle_event("edit_input", %{"name" => name}, socket) do
@@ -1077,11 +1097,15 @@ defmodule DomovoyWeb.ComposerLive do
     |> leave_removed_stage()
   end
 
+  @spec layout_variant(shell :: DomovoyWeb.Shell.t()) :: String.t()
+  defp layout_variant(:composer), do: "canvas"
+  defp layout_variant(:dashboard), do: "dashboard"
+
   # Undo can remove the stage on screen.
   @spec leave_removed_stage(socket :: Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp leave_removed_stage(%{assigns: %{stage: stage, document: document, draft: draft}} = socket) do
     if stage && !stage?(document, stage) do
-      push_patch(socket, to: composer_path(draft.id, nil, nil))
+      push_patch(socket, to: composer_path(socket.assigns.shell, draft.id, nil, nil, []))
     else
       socket
     end

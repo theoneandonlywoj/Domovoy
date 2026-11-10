@@ -43,8 +43,8 @@ defmodule Domovoy.Examples.Definitions do
     build(
       "create_worktree",
       [
-        {:put_input, "repository_path", %{"type" => @directory}},
-        {:put_input, "branch_name", %{"type" => @string}},
+        {:put_input, "repository_path", %{"type" => @directory, "required" => true}},
+        {:put_input, "branch_name", %{"type" => @string, "required" => true}},
         {:put_input, "base_branch", %{"type" => @string, "default" => "main"}},
         {:add_stage, "inspect_worktree"},
         {:set_start, "inspect_worktree"},

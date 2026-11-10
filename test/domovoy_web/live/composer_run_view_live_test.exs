@@ -116,6 +116,11 @@ defmodule DomovoyWeb.ComposerRunViewLiveTest do
       refute has_element?(view, "#latest-run-link")
       assert has_element?(view, "#recent-run-status-#{held.run_id}", "Needs a check")
       assert has_element?(view, "#attention-runs-link", "1 run may need you")
+
+      assert has_element?(
+               view,
+               "#attention-runs-link[href='/composer/runs?draft=#{held.draft.id}&status=attention']"
+             )
     end
 
     test "a written waiting summary is the Unfinished run, listed first", %{conn: conn} do

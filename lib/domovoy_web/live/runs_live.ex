@@ -4,12 +4,13 @@ defmodule DomovoyWeb.RunsLive do
   time, each row showing its run summary and opening that run's page. Rendering opens
   no run. After each page, its rows with no summary, or an unfinished one older than 30
   seconds, are refreshed in the background. A summary is only what history last saw;
-  a run's own page re-reads Core. With runs off it says so and reads nothing.
+  a run's own page re-reads Core. With runs off it says so and reads nothing. It lives in
+  both shells, and its links and patches stay in the shell it was opened in.
   """
 
   use DomovoyWeb, :live_view
 
-  import DomovoyWeb.ComposerComponents, only: [run_link: 3]
+  import DomovoyWeb.ComposerComponents, only: [drafts_path: 1, run_link: 5, runs_path: 2]
   import DomovoyWeb.ComposerRunComponents, only: [start_time: 1, summary_chip: 1]
 
   alias Domovoy.Composer
@@ -66,12 +67,12 @@ defmodule DomovoyWeb.RunsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
-      <div class="space-y-6">
+    <Layouts.app flash={@flash} variant={layout_variant(@shell)} active="workflows">
+      <div class={["space-y-6", @shell == :dashboard && "mx-auto max-w-6xl px-4 py-6 sm:px-6"]}>
         <header class="flex flex-wrap items-end justify-between gap-4">
           <div class="space-y-1">
             <nav aria-label="Breadcrumb" class="text-sm">
-              <.link navigate={~p"/composer"} class="soft-link">Drafts</.link>
+              <.link navigate={drafts_path(@shell)} class="soft-link">Drafts</.link>
               <span class="text-muted">/</span>
               <span>Runs</span>
             </nav>
@@ -117,7 +118,7 @@ defmodule DomovoyWeb.RunsLive do
             <li :for={{id, run} <- @streams.runs} id={id}>
               <.link
                 id={"open-#{id}"}
-                navigate={run_link(run.draft_id, nil, run.id)}
+                navigate={run_link(@shell, run.draft_id, nil, run.id, [])}
                 class="soft-row flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
               >
                 <.summary_chip id={"#{id}-status"} summary={run.summary} />
@@ -156,7 +157,7 @@ defmodule DomovoyWeb.RunsLive do
           is_binary(value) and value not in ["", "all"],
           do: {key, value}
 
-    {:noreply, push_patch(socket, to: ~p"/composer/runs?#{query}")}
+    {:noreply, push_patch(socket, to: runs_path(socket.assigns.shell, query))}
   end
 
   def handle_event("more", _params, %{assigns: %{next: next}} = socket) when not is_nil(next),
@@ -241,4 +242,8 @@ defmodule DomovoyWeb.RunsLive do
   defp filter_form(draft, status),
     do:
       to_form(%{"draft" => draft || "", "status" => status}, as: :runs_filter, id: "runs-filter")
+
+  @spec layout_variant(shell :: DomovoyWeb.Shell.t()) :: String.t()
+  defp layout_variant(:composer), do: "page"
+  defp layout_variant(:dashboard), do: "dashboard"
 end

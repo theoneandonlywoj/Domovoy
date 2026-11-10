@@ -218,6 +218,79 @@ test("Escape with the cancel dialog open leaves the selection to the dialog", ()
   }
 })
 
+// A key target inside the inputs popover, which is a non-modal `role="dialog"`.
+const inDialog = onBlur => ({
+  tagName: "DIV",
+  closest: sel => sel === "[role='dialog']" ? {hidden: true} : null,
+  blur() { onBlur?.() },
+})
+
+function escapeDocument(ids) {
+  const clicked = []
+  const nodes = new Map(ids.map(id => [id, {click: () => clicked.push(id)}]))
+  globalThis.document = {getElementById: id => nodes.get(id), querySelector: () => null}
+  return {clicked, nodes}
+}
+
+test("Escape inside a dialog leaves Tools, the Outline and the selection alone", () => {
+  const previous = globalThis.document
+  try {
+    const {clicked, nodes} = escapeDocument(["composer-tools", "close-tools", "close-outline-panel", "deselect-node"])
+    nodes.set("outline-panel", {hidden: false})
+    const state = Object.create(hook)
+    let blurred = false
+
+    state.escape({target: inDialog(() => { blurred = true })})
+    assert.deepEqual(clicked, [])
+    assert.equal(blurred, true)
+
+    state.escape({target: {tagName: "DIV", closest: () => null}})
+    assert.deepEqual(clicked, ["close-tools"])
+  } finally {
+    globalThis.document = previous
+  }
+})
+
+test("Escape inside a dialog still closes an open picker", () => {
+  const previous = globalThis.document
+  try {
+    const {clicked} = escapeDocument(["connect-close", "deselect-node"])
+    Object.create(hook).escape({target: inDialog()})
+    assert.deepEqual(clicked, ["connect-close"])
+  } finally {
+    globalThis.document = previous
+  }
+})
+
+test("Escape inside a dialog still cancels a gesture", () => {
+  const previous = globalThis.document
+  try {
+    escapeDocument(["deselect-node"])
+    const state = Object.create(hook)
+    let cancelled = false
+    state.gesture = {}
+    state.cancelGesture = () => { cancelled = true }
+    state.escape({target: inDialog()})
+    assert.equal(cancelled, true)
+  } finally {
+    globalThis.document = previous
+  }
+})
+
+test("Undo inside a dialog pushes nothing", () => {
+  const previous = globalThis.document
+  globalThis.document = {getElementById: () => null}
+  try {
+    const {state} = background()
+    let prevented = false
+    state.keyDown({key: "z", metaKey: true, ctrlKey: false, shiftKey: false, target: inDialog(), preventDefault() { prevented = true }})
+    assert.deepEqual(state.pushes, [])
+    assert.equal(prevented, false)
+  } finally {
+    globalThis.document = previous
+  }
+})
+
 test("closing the inspector panel returns focus from the body", () => {
   const previous = globalThis.document
   const state = Object.create(hook)

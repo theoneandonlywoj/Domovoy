@@ -1,0 +1,12 @@
+{
+  "prefixes": ["g"],
+  "scopes": {
+    "page": {
+      "go.dashboard": "g d",
+      "go.projects": "g p",
+      "go.jobs": "g j",
+      "go.workflows": "g w",
+      "app.hints": "?"
+    }
+  }
+}
