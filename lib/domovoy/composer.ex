@@ -57,6 +57,7 @@ defmodule Domovoy.Composer do
   defdelegate open_run(row), to: Runs, as: :open
   defdelegate run_view(handle), to: Runs, as: :view
   defdelegate run_page(filters, cursor, limit), to: Runs, as: :page
+  defdelegate latest_runs(draft_ids), to: Runs, as: :latest
   defdelegate attention_runs(draft_id, limit), to: Runs, as: :attention
   defdelegate summarize_run(run_id, view), to: Runs, as: :summarize
   defdelegate refresh_run_summaries(run_ids), to: Runs, as: :refresh_summaries
@@ -100,6 +101,10 @@ defmodule Domovoy.Composer do
 
     Repo.all(query, log: false)
   end
+
+  @doc "How many drafts there are."
+  @spec count_drafts() :: non_neg_integer()
+  def count_drafts, do: Repo.aggregate(Draft, :count, log: false)
 
   @doc """
   Finds a draft. A malformed id is the same as an unknown one.

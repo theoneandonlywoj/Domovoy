@@ -3,6 +3,7 @@ defmodule DomovoyWeb.DashboardLiveTest do
 
   import Domovoy.ComposerFixtures
 
+  alias Domovoy.Composer
   alias Domovoy.Dashboard.Mock
   alias DomovoyWeb.DashboardComponents
 
@@ -43,6 +44,7 @@ defmodule DomovoyWeb.DashboardLiveTest do
       assert text(view, "#dashboard-tile-projects-count") == "6"
       assert text(view, "#dashboard-tile-jobs-count") == Integer.to_string(active)
       assert text(view, "#dashboard-tile-workflows-count") == "2"
+      assert Composer.count_drafts() == 2
     end
 
     test "each tile links to its section", %{conn: conn} do

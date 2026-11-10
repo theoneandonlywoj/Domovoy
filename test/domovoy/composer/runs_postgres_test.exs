@@ -354,10 +354,10 @@ defmodule Domovoy.Composer.RunsPostgresTest do
   end
 
   describe "history from run summaries" do
-    defp row!(draft, inserted_at) do
+    defp row!(draft, inserted_at, id \\ Ecto.UUID.generate()) do
       Repo.insert!(
         %Run{
-          id: Ecto.UUID.generate(),
+          id: id,
           draft_id: draft.id,
           workflow_name: draft.document["name"],
           document: draft.document,
@@ -389,6 +389,38 @@ defmodule Domovoy.Composer.RunsPostgresTest do
     end
 
     defp ids(rows), do: Enum.map(rows, & &1.id)
+
+    test "latest gives each draft's newest run, ties broken by the larger id" do
+      [d, g, h] = for name <- ~w(D G H), do: draft!(leak_run(), name)
+      e = draft!(leak_run(), "E")
+      f = draft!(leak_run(), "F")
+      at = ago(10)
+      row!(d, ago(3_600))
+
+      # Four rows per draft in the same second, inserted ascending, descending and
+      # shuffled, so a query without `desc: id` is very unlikely to pick the largest
+      # id for all three drafts, whatever order the join and scan return them in.
+      orders = [{d, &Enum.sort/1}, {g, &Enum.sort(&1, :desc)}, {h, &Enum.shuffle/1}]
+
+      winners =
+        for {draft, order} <- orders, into: %{} do
+          ids = for _ <- 1..4, do: Ecto.UUID.generate()
+          for id <- order.(ids), do: row!(draft, at, id)
+          {draft.id, Enum.max(ids)}
+        end
+
+      summarize!(Repo.get!(Run, winners[d.id], log: false), "finished")
+      only = row!(e, ago(5))
+
+      latest = Runs.latest([d.id, g.id, h.id, e.id, f.id, "not-a-uuid"])
+
+      assert Enum.sort(Map.keys(latest)) == Enum.sort([d.id, g.id, h.id, e.id])
+      for {draft_id, id} <- winners, do: assert(latest[draft_id].id == id)
+      assert %Run{summary: %{committed_phase: "finished"}} = latest[d.id]
+      assert %Run{summary: nil} = latest[e.id]
+      assert latest[e.id].id == only.id
+      assert Runs.latest([]) == %{}
+    end
 
     test "an old waiting run is found past 11 newer finished ones" do
       draft = draft!(leak_run(), "Leak")

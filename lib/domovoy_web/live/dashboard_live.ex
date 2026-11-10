@@ -140,7 +140,11 @@ defmodule DomovoyWeb.DashboardLive do
   def handle_event("search", %{"search" => %{"q" => q}}, socket) when is_binary(q) do
     case socket.assigns.live_action do
       action when action in [:projects, :jobs, :workflows] ->
-        {:noreply, push_patch(socket, to: panel_path(action, q, socket.assigns.status))}
+        {:noreply,
+         push_patch(socket,
+           to: panel_path(action, String.trim(q), socket.assigns.status),
+           replace: true
+         )}
 
       _other ->
         {:noreply, socket}
@@ -176,7 +180,7 @@ defmodule DomovoyWeb.DashboardLive do
       %{
         key: "workflows",
         label: "Workflows",
-        count: length(Composer.list_drafts()),
+        count: Composer.count_drafts(),
         path: ~p"/dashboard/workflows"
       }
     ]
@@ -236,15 +240,9 @@ defmodule DomovoyWeb.DashboardLive do
 
   @spec latest_runs(drafts :: [Composer.Draft.t()]) :: %{String.t() => Composer.Run.t()}
   defp latest_runs(drafts) do
-    if Composer.runs_enabled?() do
-      for draft <- drafts,
-          %{runs: [run | _older]} <- [
-            Composer.run_page(%{draft_id: draft.id, status: "all"}, nil, 1)
-          ],
-          into: %{},
-          do: {draft.id, run}
-    else
-      %{}
+    case Composer.latest_runs(Enum.map(drafts, & &1.id)) do
+      %{} = runs -> runs
+      {:error, :runs_disabled} -> %{}
     end
   end
 

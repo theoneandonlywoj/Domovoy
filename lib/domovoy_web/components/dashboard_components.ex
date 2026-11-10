@@ -263,15 +263,11 @@ defmodule DomovoyWeb.DashboardComponents do
 
   # Only whole-number positions are drawn, so a malformed layout draws nothing.
   @spec layout_points(document :: map()) :: [{integer(), integer()}]
-  defp layout_points(document) do
-    case get_in(document, ["layout", "workflow"]) do
-      %{} = positions ->
-        for {_name, %{"x" => x, "y" => y}} <- positions, is_integer(x), is_integer(y), do: {x, y}
-
-      _other ->
-        []
-    end
+  defp layout_points(%{"layout" => %{"workflow" => %{} = positions}}) do
+    for {_name, %{"x" => x, "y" => y}} <- positions, is_integer(x), is_integer(y), do: {x, y}
   end
+
+  defp layout_points(_document), do: []
 
   # Fits the points into the 160x64 box with a margin, keeping their aspect ratio.
   @spec scale(points :: [{integer(), integer()}]) :: [{float(), float()}]

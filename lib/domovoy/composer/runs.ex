@@ -381,6 +381,29 @@ defmodule Domovoy.Composer.Runs do
   end
 
   @doc """
+  The newest run of each given draft, by draft id, with its summary or nil. Runs in
+  the same second break the tie by id, as in `page/3`. A draft with no run, and a
+  malformed id, are left out. Reads rows only.
+  """
+  @spec latest(draft_ids :: [term()]) :: %{String.t() => Run.t()} | disabled()
+  def latest(draft_ids) do
+    gated(fn ->
+      ids = for id <- List.wrap(draft_ids), {:ok, uuid} <- [Ecto.UUID.cast(id)], do: uuid
+
+      if ids == [] do
+        %{}
+      else
+        summarized()
+        |> where([run: row], row.draft_id in ^ids)
+        |> distinct([run: row], row.draft_id)
+        |> order_by([run: row], desc: row.inserted_at, desc: row.id)
+        |> Repo.all(log: false)
+        |> Map.new(&{&1.draft_id, &1})
+      end
+    end)
+  end
+
+  @doc """
   A draft's runs that may need a person, newest first: those whose summary says they
   aren't finished, then those with no summary yet. Reads rows only.
   """

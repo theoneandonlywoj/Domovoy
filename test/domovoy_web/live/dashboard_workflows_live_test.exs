@@ -37,6 +37,8 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
 
     view |> form("#dashboard-search", search: %{q: "borg night"}) |> render_change()
     assert_patch(view, ~p"/dashboard/workflows?#{[q: "borg night"]}")
+    view |> form("#dashboard-search", search: %{q: "borg "}) |> render_change()
+    assert_patch(view, ~p"/dashboard/workflows?#{[q: "borg"]}")
     assert has_element?(view, "#workflow-#{kept.id}")
     refute has_element?(view, "#workflow-#{other.id}")
     assert card_count(view) < all
@@ -55,6 +57,19 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
     refute has_element?(view, "#workflow-#{drawn.id}-placeholder")
     assert has_element?(view, "#workflow-#{bare.id}-placeholder")
     refute has_element?(view, "#workflow-#{bare.id}-miniature")
+  end
+
+  test "a malformed layout draws the placeholder and the page still renders", %{conn: conn} do
+    good = draft!(scenario_a(), "Good")
+
+    bad =
+      for layout <- ["x", 1, ["a"], %{"workflow" => "x"}],
+          do: draft!(Map.put(scenario_a(), "layout", layout), "Bad")
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+    assert has_element?(view, "#workflow-#{good.id}-miniature")
+    for draft <- bad, do: assert(has_element?(view, "#workflow-#{draft.id}-placeholder"))
   end
 
   test "with runs off, a card shows no last run", %{conn: conn} do
