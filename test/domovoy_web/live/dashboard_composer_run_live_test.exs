@@ -98,8 +98,8 @@ defmodule DomovoyWeb.DashboardComposerRunLiveTest do
     |> hd()
   end
 
-  # Every `/composer` link inside the dashboard must be a standalone run page or the
-  # export download, the only exits the dashboard has.
+  # Every `/composer` link inside the dashboard must be the export download, the only
+  # exit the dashboard has.
   defp hrefs_leak?(view) do
     view
     |> render()
@@ -107,8 +107,7 @@ defmodule DomovoyWeb.DashboardComposerRunLiveTest do
     |> LazyHTML.query("a[href]")
     |> LazyHTML.attribute("href")
     |> Enum.any?(fn href ->
-      String.starts_with?(href, "/composer") and
-        not (String.starts_with?(href, "/composer/runs") or String.ends_with?(href, "/export"))
+      String.starts_with?(href, "/composer") and not String.ends_with?(href, "/export")
     end)
   end
 
@@ -156,7 +155,12 @@ defmodule DomovoyWeb.DashboardComposerRunLiveTest do
 
     assert has_element?(
              view,
-             "#all-runs-link[href='/composer/runs?draft=#{run.draft.id}']"
+             "#all-runs-link[href='/dashboard/workflows/runs?draft=#{run.draft.id}']"
+           )
+
+    assert has_element?(
+             view,
+             "#attention-runs-link[href='/dashboard/workflows/runs?draft=#{run.draft.id}&status=attention']"
            )
 
     refute hrefs_leak?(view)
@@ -169,6 +173,14 @@ defmodule DomovoyWeb.DashboardComposerRunLiveTest do
 
     view |> element("#back-to-draft") |> render_click()
     assert_patch(view, base(run.draft))
+    render_async(view, 5_000)
+
+    {:ok, runs, _html} =
+      view |> element("#all-runs-link") |> render_click() |> follow_redirect(conn)
+
+    render_async(runs, 5_000)
+    assert has_element?(runs, "#runs")
+    assert has_element?(runs, "#dashboard-nav-workflows[aria-current='page']")
   end
 
   test "a failed run's step link stays in the dashboard", %{conn: conn} do

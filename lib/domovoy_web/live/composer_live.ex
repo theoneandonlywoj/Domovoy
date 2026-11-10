@@ -10,7 +10,7 @@ defmodule DomovoyWeb.ComposerLive do
 
   `?run=<id>` shows one run of the draft, read-only, through
   `DomovoyWeb.ComposerLive.RunEvents`, whose hooks deny every edit there.
-  `/composer/runs/<id>` opens a run by its id alone: one with a draft goes to that
+  `/composer/runs/<id>` and `/dashboard/workflows/runs/<id>` open a run by its id alone: one with a draft goes to that
   draft's `?run=`, and one whose draft was deleted shows its snapshot with no draft.
   """
 
@@ -50,7 +50,10 @@ defmodule DomovoyWeb.ComposerLive do
             do: RunEvents.refusal_text(:runs_disabled),
             else: "That run doesn't exist."
 
-        {:ok, socket |> put_flash(:error, message) |> push_navigate(to: ~p"/composer")}
+        {:ok,
+         socket
+         |> put_flash(:error, message)
+         |> push_navigate(to: drafts_path(socket.assigns.shell))}
     end
   end
 

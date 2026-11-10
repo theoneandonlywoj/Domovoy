@@ -33,6 +33,9 @@ defmodule DomovoyWeb.Router do
       live "/dashboard/projects", DashboardLive, :projects
       live "/dashboard/jobs", DashboardLive, :jobs
       live "/dashboard/workflows", DashboardLive, :workflows
+      live "/dashboard/workflows/runs", RunsLive, :index
+      live "/dashboard/workflows/runs/:run_id", ComposerLive, :run
+      live "/dashboard/workflows/runs/:run_id/stages/:stage", ComposerLive, :run_stage
       live "/dashboard/workflows/:id", ComposerLive, :workflow
       live "/dashboard/workflows/:id/stages/:stage", ComposerLive, :stage
     end

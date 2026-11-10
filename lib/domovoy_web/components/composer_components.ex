@@ -405,6 +405,13 @@ defmodule DomovoyWeb.ComposerComponents do
   def drafts_path(:composer), do: ~p"/composer"
   def drafts_path(:dashboard), do: ~p"/dashboard/workflows"
 
+  @doc "Where the runs list is in a shell, with `draft` and `status` filters in `query`."
+  @spec runs_path(shell :: DomovoyWeb.Shell.t(), query :: keyword()) :: String.t()
+  def runs_path(:composer, []), do: ~p"/composer/runs"
+  def runs_path(:composer, query), do: ~p"/composer/runs?#{query}"
+  def runs_path(:dashboard, []), do: ~p"/dashboard/workflows/runs"
+  def runs_path(:dashboard, query), do: ~p"/dashboard/workflows/runs?#{query}"
+
   # Arity 5 only, with no default: an old 3- or 4-argument call must fail to compile.
 
   @doc """
@@ -439,8 +446,8 @@ defmodule DomovoyWeb.ComposerComponents do
     do: ~p"/dashboard/workflows/#{id}/stages/#{stage}?#{params}"
 
   @doc """
-  The link to a run in a shell: through its draft when it has one, else the run-only route,
-  which exists only in the standalone composer. `query` carries `node`, `gen` and `scope`; a
+  The link to a run in a shell: through its draft when it has one, else the shell's run-only
+  route. `query` carries `node`, `gen` and `scope`; a
   nil value is left out. With a draft, a nil `run_id` is the draft itself.
   """
   @spec run_link(
@@ -454,17 +461,29 @@ defmodule DomovoyWeb.ComposerComponents do
 
   def run_link(shell, nil, stage, run_id, query) when shell in [:composer, :dashboard] do
     params = for {key, value} <- query, not is_nil(value), do: {key, value}
-
-    case {stage, params} do
-      {nil, []} -> ~p"/composer/runs/#{run_id}"
-      {nil, params} -> ~p"/composer/runs/#{run_id}?#{params}"
-      {stage, []} -> ~p"/composer/runs/#{run_id}/stages/#{stage}"
-      {stage, params} -> ~p"/composer/runs/#{run_id}/stages/#{stage}?#{params}"
-    end
+    run_only_path(shell, run_id, stage, params)
   end
 
   def run_link(shell, draft_id, stage, run_id, query) when shell in [:composer, :dashboard],
     do: composer_path(shell, draft_id, stage, run_id, query)
+
+  defp run_only_path(:composer, id, nil, []), do: ~p"/composer/runs/#{id}"
+  defp run_only_path(:composer, id, nil, params), do: ~p"/composer/runs/#{id}?#{params}"
+  defp run_only_path(:composer, id, stage, []), do: ~p"/composer/runs/#{id}/stages/#{stage}"
+
+  defp run_only_path(:composer, id, stage, params),
+    do: ~p"/composer/runs/#{id}/stages/#{stage}?#{params}"
+
+  defp run_only_path(:dashboard, id, nil, []), do: ~p"/dashboard/workflows/runs/#{id}"
+
+  defp run_only_path(:dashboard, id, nil, params),
+    do: ~p"/dashboard/workflows/runs/#{id}?#{params}"
+
+  defp run_only_path(:dashboard, id, stage, []),
+    do: ~p"/dashboard/workflows/runs/#{id}/stages/#{stage}"
+
+  defp run_only_path(:dashboard, id, stage, params),
+    do: ~p"/dashboard/workflows/runs/#{id}/stages/#{stage}?#{params}"
 
   defp adapters(%{connect: nil}), do: []
 

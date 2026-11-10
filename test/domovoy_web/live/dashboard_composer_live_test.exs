@@ -13,8 +13,8 @@ defmodule DomovoyWeb.DashboardComposerLiveTest do
 
   defp click(view, selector), do: view |> element(selector) |> render_click()
 
-  # Every `/composer` link inside the dashboard must be a standalone run page or the
-  # export download, the only exits the dashboard has.
+  # Every `/composer` link inside the dashboard must be the export download, the only
+  # exit the dashboard has.
   defp hrefs_leak?(view) do
     view
     |> render()
@@ -22,8 +22,7 @@ defmodule DomovoyWeb.DashboardComposerLiveTest do
     |> LazyHTML.query("a[href]")
     |> LazyHTML.attribute("href")
     |> Enum.any?(fn href ->
-      String.starts_with?(href, "/composer") and
-        not (String.starts_with?(href, "/composer/runs") or String.ends_with?(href, "/export"))
+      String.starts_with?(href, "/composer") and not String.ends_with?(href, "/export")
     end)
   end
 

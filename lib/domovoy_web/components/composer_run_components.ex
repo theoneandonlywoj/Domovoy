@@ -23,6 +23,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
       run_link: 5,
       run_pill: 1,
       run_status_word: 1,
+      runs_path: 2,
       surface_switcher: 1
     ]
 
@@ -1850,7 +1851,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
       <.link
         :if={@attention_count > 0 && @draft_id}
         id="attention-runs-link"
-        navigate={~p"/composer/runs?#{[draft: @draft_id, status: "attention"]}"}
+        navigate={runs_path(@shell, draft: @draft_id, status: "attention")}
         class="soft-link block text-xs text-warning"
       >
         {attention_label(@attention_count)}
@@ -1874,7 +1875,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
       <.link
         :if={@draft_id}
         id="all-runs-link"
-        navigate={~p"/composer/runs?#{[draft: @draft_id]}"}
+        navigate={runs_path(@shell, draft: @draft_id)}
         class="soft-link block text-xs"
       >
         All runs of this draft
