@@ -33,8 +33,38 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {...colocatedHooks, ComposerCanvas},
 })
 
+// The bar's one toggle: collapse on desktop (remembered in a cookie), overlay on phones.
+// The collapse lives on <html>, which live navigation keeps, and in a cookie the root layout reads.
+window.addEventListener("domovoy:toggle", () => {
+  const drawer = document.getElementById("dashboard-drawer")
+  if (!drawer) return
+  if (matchMedia("(width >= 48rem)").matches) {
+    const root = document.documentElement
+    const next = root.dataset.drawer === "collapsed" ? "expanded" : "collapsed"
+    root.dataset.drawer = next
+    document.cookie = `domovoy_drawer=${next}; path=/; max-age=31536000; samesite=lax`
+  } else {
+    liveSocket.execJS(drawer, drawer.getAttribute("aria-modal") === "true" ? drawer.dataset.close : drawer.dataset.open)
+  }
+})
+// While the overlay drawer is open, Escape closes only it, and Undo doesn't reach the hidden composer.
+window.addEventListener("keydown", e => {
+  const drawer = document.querySelector("#dashboard-drawer[aria-modal='true']")
+  if (!drawer) return
+  const undo = (e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === "z"
+  if (e.key !== "Escape" && !undo) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  if (e.key === "Escape") liveSocket.execJS(drawer, drawer.dataset.close)
+}, {capture: true})
+// Widening past the overlay breakpoint with the overlay open would leave main inert behind a hidden scrim.
+matchMedia("(width >= 48rem)").addEventListener("change", ({matches}) => {
+  const drawer = document.querySelector("#dashboard-drawer[aria-modal='true']")
+  if (matches && drawer) liveSocket.execJS(drawer, drawer.dataset.close)
+})
+
 // Show progress bar on live navigation and form submits
-topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
+topbar.config({barColors: {0: "#e6c878"}, shadowColor: "rgba(230, 200, 120, .35)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 

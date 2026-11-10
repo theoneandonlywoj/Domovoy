@@ -9,7 +9,7 @@ defmodule DomovoyWeb.RunsLive do
 
   use DomovoyWeb, :live_view
 
-  import DomovoyWeb.ComposerComponents, only: [run_link: 3]
+  import DomovoyWeb.ComposerComponents, only: [run_link: 5]
   import DomovoyWeb.ComposerRunComponents, only: [start_time: 1, summary_chip: 1]
 
   alias Domovoy.Composer
@@ -117,7 +117,7 @@ defmodule DomovoyWeb.RunsLive do
             <li :for={{id, run} <- @streams.runs} id={id}>
               <.link
                 id={"open-#{id}"}
-                navigate={run_link(run.draft_id, nil, run.id)}
+                navigate={run_link(:composer, run.draft_id, nil, run.id, [])}
                 class="soft-row flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
               >
                 <.summary_chip id={"#{id}-status"} summary={run.summary} />

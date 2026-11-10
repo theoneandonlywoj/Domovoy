@@ -47,6 +47,7 @@ defmodule DomovoyWeb.ComposerComponents do
   @doc """
   The title, engine target, Validate, validity, fingerprint, Export and Undo.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :draft, :map, required: true
   attr :stage, :string, default: nil
   attr :validity, :map, default: nil
@@ -71,7 +72,7 @@ defmodule DomovoyWeb.ComposerComponents do
       <.outline_toggle open?={@outline_open?} label="Outline" />
       <nav id="breadcrumb" aria-label="Breadcrumb" class="min-w-0 text-sm">
         <.link
-          navigate={~p"/composer"}
+          navigate={drafts_path(@shell)}
           class="soft-link"
         >
           Drafts
@@ -82,7 +83,7 @@ defmodule DomovoyWeb.ComposerComponents do
         <.link
           :if={@stage}
           id="breadcrumb-workflow"
-          patch={composer_path(@draft.id, nil, nil)}
+          patch={composer_path(@shell, @draft.id, nil, nil, [])}
           class="soft-link"
         >
           Workflow
@@ -151,7 +152,7 @@ defmodule DomovoyWeb.ComposerComponents do
         <.link
           :if={@runs_enabled? && @latest_run}
           id="latest-run-link"
-          patch={composer_path(@draft.id, @stage, @latest_run)}
+          patch={composer_path(@shell, @draft.id, @stage, @latest_run, [])}
           class="soft-link text-sm"
         >
           Unfinished run
@@ -399,51 +400,59 @@ defmodule DomovoyWeb.ComposerComponents do
     """
   end
 
-  @doc """
-  The composer's path: a draft at a level, and in a run when `run_id` is set.
-  """
-  @spec composer_path(
-          draft_id :: String.t(),
-          stage :: String.t() | nil,
-          run_id :: String.t() | nil
-        ) :: String.t()
-  def composer_path(draft_id, stage, run_id), do: composer_path(draft_id, stage, run_id, [])
+  @doc "Where the draft list is in a shell."
+  @spec drafts_path(shell :: DomovoyWeb.Shell.t()) :: String.t()
+  def drafts_path(:composer), do: ~p"/composer"
+  def drafts_path(:dashboard), do: ~p"/dashboard/workflows"
+
+  # Arity 5 only, with no default: an old 3- or 4-argument call must fail to compile.
 
   @doc """
-  The composer's path with more query params after `run`, such as `node`, `gen` and
-  `scope`; a nil value is left out.
+  The composer's path in a shell: a draft at a level, in a run when `run_id` is set, with more
+  query params after `run` such as `node`, `gen` and `scope`; a nil value is left out.
   """
   @spec composer_path(
+          shell :: DomovoyWeb.Shell.t(),
           draft_id :: String.t(),
           stage :: String.t() | nil,
           run_id :: String.t() | nil,
           query :: keyword()
         ) :: String.t()
-  def composer_path(draft_id, stage, run_id, query) do
+  def composer_path(shell, draft_id, stage, run_id, query)
+      when shell in [:composer, :dashboard] do
     params = for {key, value} <- [run: run_id] ++ query, not is_nil(value), do: {key, value}
-
-    case {stage, params} do
-      {nil, []} -> ~p"/composer/#{draft_id}"
-      {nil, params} -> ~p"/composer/#{draft_id}?#{params}"
-      {stage, []} -> ~p"/composer/#{draft_id}/stages/#{stage}"
-      {stage, params} -> ~p"/composer/#{draft_id}/stages/#{stage}?#{params}"
-    end
+    draft_path(shell, draft_id, stage, params)
   end
 
+  defp draft_path(:composer, id, nil, []), do: ~p"/composer/#{id}"
+  defp draft_path(:composer, id, nil, params), do: ~p"/composer/#{id}?#{params}"
+  defp draft_path(:composer, id, stage, []), do: ~p"/composer/#{id}/stages/#{stage}"
+
+  defp draft_path(:composer, id, stage, params),
+    do: ~p"/composer/#{id}/stages/#{stage}?#{params}"
+
+  defp draft_path(:dashboard, id, nil, []), do: ~p"/dashboard/workflows/#{id}"
+  defp draft_path(:dashboard, id, nil, params), do: ~p"/dashboard/workflows/#{id}?#{params}"
+  defp draft_path(:dashboard, id, stage, []), do: ~p"/dashboard/workflows/#{id}/stages/#{stage}"
+
+  defp draft_path(:dashboard, id, stage, params),
+    do: ~p"/dashboard/workflows/#{id}/stages/#{stage}?#{params}"
+
   @doc """
-  The link to a run: through its draft when it has one, else the run-only route. `query`
-  carries `node`, `gen` and `scope`; a nil value is left out. With a draft, a nil
-  `run_id` is the draft itself.
+  The link to a run in a shell: through its draft when it has one, else the run-only route,
+  which exists only in the standalone composer. `query` carries `node`, `gen` and `scope`; a
+  nil value is left out. With a draft, a nil `run_id` is the draft itself.
   """
   @spec run_link(
+          shell :: DomovoyWeb.Shell.t(),
           draft_id :: String.t() | nil,
           stage :: String.t() | nil,
           run_id :: String.t() | nil,
           query :: keyword()
         ) :: String.t()
-  def run_link(draft_id, stage, run_id, query \\ [])
+  def run_link(shell, draft_id, stage, run_id, query)
 
-  def run_link(nil, stage, run_id, query) do
+  def run_link(shell, nil, stage, run_id, query) when shell in [:composer, :dashboard] do
     params = for {key, value} <- query, not is_nil(value), do: {key, value}
 
     case {stage, params} do
@@ -454,7 +463,8 @@ defmodule DomovoyWeb.ComposerComponents do
     end
   end
 
-  def run_link(draft_id, stage, run_id, query), do: composer_path(draft_id, stage, run_id, query)
+  def run_link(shell, draft_id, stage, run_id, query) when shell in [:composer, :dashboard],
+    do: composer_path(shell, draft_id, stage, run_id, query)
 
   defp adapters(%{connect: nil}), do: []
 
@@ -553,31 +563,82 @@ defmodule DomovoyWeb.ComposerComponents do
   end
 
   @doc """
-  Workflow inputs, each usable as a source, and the form that adds or changes one.
+  The strip above the graph: workflow inputs, on a stage the sources from earlier stages,
+  and a popover holding the form that adds or changes an input. Only the chips scroll
+  sideways; the popover and Add input sit outside that scroller, so it never clips them.
   """
   attr :inputs, :list, required: true
   attr :prior, :list, default: []
-  attr :connect?, :boolean, default: true
   attr :form, :any, required: true
   attr :types, :list, required: true
 
-  def input_rail(assigns) do
-    assigns = assign(assigns, section_title: @section_title, secondary: @secondary)
+  def input_strip(assigns) do
+    assigns =
+      assign(assigns, section_title: @section_title, secondary: @secondary, quiet: @quiet)
 
     ~H"""
     <section
       id="inputs-rail"
       aria-label="Workflow inputs"
-      class="space-y-2 border-t border-base-300 p-3"
+      data-modal-background
+      class="soft-panel relative flex items-center gap-2 px-3 py-2"
     >
-      <h2 class={@section_title}>Inputs</h2>
-      <ul id="inputs-rows" class="space-y-1.5">
-        <.input_row :for={input <- @inputs} :key={input.name} input={input} connect?={@connect?} />
-      </ul>
-      <.prior_sources :if={@prior != []} sources={@prior} />
-      <.input_form form={@form} types={@types} />
+      <div
+        id="inputs-scroller"
+        class="flex min-w-0 flex-1 flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:py-1"
+      >
+        <h2 class={["shrink-0", @section_title]}>Inputs</h2>
+        <ul id="inputs-rows" class="flex flex-wrap items-center gap-2 max-md:flex-nowrap">
+          <.input_row :for={input <- @inputs} :key={input.name} input={input} connect?={false} />
+        </ul>
+        <.prior_sources :if={@prior != []} sources={@prior} />
+      </div>
+      <button
+        id="add-input"
+        type="button"
+        class={["shrink-0", @secondary]}
+        phx-click={JS.push("new_input") |> show_inputs_popover() |> JS.focus(to: "#inputs-popover")}
+      >
+        <.icon name="hero-plus" class="size-4" /> Add input
+      </button>
+      <div
+        id="inputs-popover"
+        hidden
+        tabindex="-1"
+        role="dialog"
+        aria-label="Add or change an input"
+        class="soft-panel absolute left-3 right-3 top-full z-40 mt-2 max-h-[60dvh] space-y-2 overflow-y-auto p-3 md:right-auto md:w-96"
+        phx-click-away={hide_inputs_popover()}
+        phx-window-keydown={hide_inputs_popover()}
+        phx-key="Escape"
+      >
+        <.input_form form={@form} types={@types} />
+        <button
+          id="close-inputs-popover"
+          type="button"
+          class={@quiet}
+          phx-click={hide_inputs_popover() |> JS.focus(to: "#add-input")}
+        >
+          Close
+        </button>
+      </div>
     </section>
     """
+  end
+
+  # The popover renders `hidden`, and Tailwind's `[hidden] { display: none !important }` beats
+  # JS.show's inline display, so each show also drops the attribute and each hide restores it,
+  # as the flash group in layouts.ex does.
+  defp show_inputs_popover(js) do
+    js
+    |> JS.show(to: "#inputs-popover")
+    |> JS.remove_attribute("hidden", to: "#inputs-popover")
+  end
+
+  defp hide_inputs_popover(js \\ %JS{}) do
+    js
+    |> JS.hide(to: "#inputs-popover")
+    |> JS.set_attribute({"hidden", ""}, to: "#inputs-popover")
   end
 
   attr :sources, :list, required: true
@@ -586,13 +647,13 @@ defmodule DomovoyWeb.ComposerComponents do
     assigns = assign(assigns, quiet: @quiet, section_title: @section_title)
 
     ~H"""
-    <h2 class={["pt-2", @section_title]}>From earlier</h2>
-    <ul id="prior-sources" class="space-y-1.5">
+    <h2 class={["shrink-0", @section_title]}>From earlier</h2>
+    <ul id="prior-sources" class="flex flex-wrap gap-2 max-md:flex-nowrap">
       <li
         :for={source <- @sources}
         :key={source.name}
         id={source.dom_id}
-        class="soft-row relative px-2 py-1.5 text-xs"
+        class="soft-row relative flex shrink-0 items-center gap-2 px-2 py-1 text-xs"
       >
         <span
           :if={not source.bound?}
@@ -602,10 +663,10 @@ defmodule DomovoyWeb.ComposerComponents do
           title="Drag onto a field to bind it"
           class="socket socket-out -right-[6px]"
         ></span>
-        <p id={"#{source.dom_id}-origin"} class="break-words pr-2">{source.origin}</p>
-        <p id={"#{source.dom_id}-generation"} class="text-muted">
+        <span id={"#{source.dom_id}-origin"} class="whitespace-nowrap">{source.origin}</span>
+        <span id={"#{source.dom_id}-generation"} class="whitespace-nowrap text-muted">
           may be from an earlier generation
-        </p>
+        </span>
         <button
           :if={not source.bound?}
           id={"#{source.dom_id}-connect"}
@@ -617,7 +678,7 @@ defmodule DomovoyWeb.ComposerComponents do
         </button>
       </li>
     </ul>
-    <p id="any-across-stages" class="text-xs text-muted">
+    <p id="any-across-stages" class="max-w-md text-xs text-muted max-md:min-w-72">
       Across stages, Any matches only Any. An Any field can read one of these only while
       another field of this stage reads it with its concrete type.
     </p>
@@ -634,7 +695,10 @@ defmodule DomovoyWeb.ComposerComponents do
     <li
       id={@input.dom_id}
       tabindex="-1"
-      class={["soft-row relative px-2 py-1.5 text-sm", @input.issues != [] && "ring-2 ring-error"]}
+      class={[
+        "soft-row relative flex shrink-0 items-center gap-2 px-2 py-1 text-xs",
+        @input.issues != [] && "ring-2 ring-error"
+      ]}
     >
       <span
         :if={@connect?}
@@ -644,51 +708,51 @@ defmodule DomovoyWeb.ComposerComponents do
         title="Drag onto a field to bind it"
         class="socket socket-out -right-[6px]"
       ></span>
-      <div class="flex items-center gap-1">
-        <span class="min-w-0 flex-1 truncate font-medium">{@input.name}</span>
-        <.description_icon id={"#{@input.dom_id}-description"} description={@input.description} />
-        <.type_chip label={@input.type_label} />
-      </div>
+      <span class="max-w-40 truncate text-sm font-medium">{@input.name}</span>
+      <.description_icon id={"#{@input.dom_id}-description"} description={@input.description} />
       <.description_text
         id={"#{@input.dom_id}-description-text"}
         description={@input.description}
-        class="mt-0.5"
+        class="max-w-48 line-clamp-1"
       />
-      <div class="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted">
-        <span id={"#{@input.dom_id}-required"}>
-          {if @input.required, do: "required", else: "optional"}
-        </span>
-        <span>·</span>
-        <span id={"#{@input.dom_id}-default"}>{default_label(@input)}</span>
-        <span class="flex-1"></span>
-        <button
-          :if={@connect?}
-          id={"#{@input.dom_id}-connect"}
-          type="button"
-          phx-click={JS.push_focus() |> JS.push("open_connect", value: %{source: @input.name})}
-          class={@quiet}
-        >
-          Connect to
-        </button>
-        <button
-          id={"#{@input.dom_id}-edit"}
-          type="button"
-          phx-click="edit_input"
-          phx-value-name={@input.name}
-          class={@quiet}
-        >
-          Edit
-        </button>
-        <button
-          id={"#{@input.dom_id}-remove"}
-          type="button"
-          phx-click="remove_input"
-          phx-value-name={@input.name}
-          class={@quiet}
-        >
-          Remove
-        </button>
-      </div>
+      <.type_chip label={@input.type_label} />
+      <span id={"#{@input.dom_id}-required"} class="text-muted">
+        {if @input.required, do: "required", else: "optional"}
+      </span>
+      <span class="text-muted">·</span>
+      <span id={"#{@input.dom_id}-default"} class="whitespace-nowrap text-muted">
+        {default_label(@input)}
+      </span>
+      <button
+        :if={@connect?}
+        id={"#{@input.dom_id}-connect"}
+        type="button"
+        phx-click={JS.push_focus() |> JS.push("open_connect", value: %{source: @input.name})}
+        class={@quiet}
+      >
+        Connect to
+      </button>
+      <button
+        id={"#{@input.dom_id}-edit"}
+        type="button"
+        phx-click={
+          JS.push("edit_input", value: %{name: @input.name})
+          |> show_inputs_popover()
+          |> JS.focus(to: "#inputs-popover")
+        }
+        class={@quiet}
+      >
+        Edit
+      </button>
+      <button
+        id={"#{@input.dom_id}-remove"}
+        type="button"
+        phx-click="remove_input"
+        phx-value-name={@input.name}
+        class={@quiet}
+      >
+        Remove
+      </button>
     </li>
     """
   end
@@ -910,6 +974,7 @@ defmodule DomovoyWeb.ComposerComponents do
   The workflow's Stage and Decision cards, on the same layer and gestures as a stage's
   runner cards. Dragging a Stage's handle onto a card sets its single next route.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :cards, :list, required: true
   attr :edges, :list, required: true
   attr :selected, :string, default: nil
@@ -936,6 +1001,7 @@ defmodule DomovoyWeb.ComposerComponents do
         :key={card.name}
         card={card}
         selected?={card.name == @selected}
+        shell={@shell}
         draft_id={@draft_id}
         run_status={@run_statuses[card.name]}
         run_id={@run_id}
@@ -1030,6 +1096,7 @@ defmodule DomovoyWeb.ComposerComponents do
     """
   end
 
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :card, :map, required: true
   attr :selected?, :boolean, required: true
   attr :draft_id, :string, required: true
@@ -1121,7 +1188,7 @@ defmodule DomovoyWeb.ComposerComponents do
         <.link
           id={"#{@card.dom_id}-open"}
           data-card-open
-          patch={run_link(@draft_id, @card.name, @run_id, scope: @scope)}
+          patch={run_link(@shell, @draft_id, @card.name, @run_id, scope: @scope)}
           class={@quiet}
         >
           Open
@@ -1541,6 +1608,7 @@ defmodule DomovoyWeb.ComposerComponents do
   @doc """
   Every issue, each linking to and focusing what it is about.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :rows, :list, required: true
   attr :draft_id, :string, required: true
 
@@ -1560,14 +1628,14 @@ defmodule DomovoyWeb.ComposerComponents do
         >
           <.link
             :if={row.patch_workflow}
-            patch={~p"/composer/#{@draft_id}"}
+            patch={composer_path(@shell, @draft_id, nil, nil, [])}
             class="block transition-colors hover:text-error"
           >
             {row.issue.message}
           </.link>
           <.link
             :if={row.patch_stage}
-            patch={~p"/composer/#{@draft_id}/stages/#{row.patch_stage}"}
+            patch={composer_path(@shell, @draft_id, row.patch_stage, nil, [])}
             class="block transition-colors hover:text-error"
           >
             {row.issue.message}

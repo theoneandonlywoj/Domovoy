@@ -15,12 +15,12 @@ defmodule DomovoyWeb.ComposerRunComponents do
   import DomovoyWeb.ComposerComponents,
     only: [
       canvas_only_toggle: 1,
-      composer_path: 3,
+      composer_path: 5,
+      drafts_path: 1,
       modal_scrim: 1,
       outline_toggle: 1,
       panel: 1,
-      run_link: 3,
-      run_link: 4,
+      run_link: 5,
       run_pill: 1,
       run_status_word: 1,
       surface_switcher: 1
@@ -47,6 +47,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
   The draft's saved input sets fill the fields in; an opt-in value a set holds is named,
   never shown, and a set that no longer fits the draft blocks Start until acknowledged.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :start, :map, required: true
   attr :open?, :boolean, required: true
   attr :draft_id, :string, required: true
@@ -95,7 +96,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
           <.link
             :if={@run_page?}
             id="launcher-fix"
-            navigate={~p"/composer/#{@draft_id}?#{[tools: 1]}"}
+            navigate={composer_path(@shell, @draft_id, nil, nil, tools: 1)}
             class={@secondary}
           >
             Fix in editor
@@ -178,7 +179,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
               Cancel
             </button>
           </div>
-          <div id="save-input-set-controls" class="space-y-2 border-t border-white/5 pt-3">
+          <div id="save-input-set-controls" class="space-y-2 border-t border-base-300 pt-3">
             <.input
               type="text"
               id="save-input-set-name"
@@ -488,6 +489,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
   back to the draft. Notices about the run follow it. A run whose draft was deleted has
   no way back, and New run says why it can't start one.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :title, :string, required: true, doc: "the draft's title, else the run's workflow name"
   attr :draft_id, :string, default: nil, doc: "nil once the run's draft was deleted"
   attr :stage, :string, default: nil
@@ -522,7 +524,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
         # Review with nothing selected opens the first pending decision, so it shows something.
         review_patch:
           if(is_nil(assigns.selected) and pending != [],
-            do: decision_path(assigns.draft_id, assigns.run.id, hd(pending))
+            do: decision_path(assigns.shell, assigns.draft_id, assigns.run.id, hd(pending))
           )
       )
 
@@ -534,7 +536,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
     >
       <.outline_toggle open?={@outline_open?} label="Steps" />
       <nav id="breadcrumb" aria-label="Breadcrumb" class="min-w-0 text-sm">
-        <.link navigate={~p"/composer"} class="soft-link">Drafts</.link>
+        <.link navigate={drafts_path(@shell)} class="soft-link">Drafts</.link>
         <span class="text-muted">/</span>
         <span id="draft-title" class="font-semibold">{@title}</span>
         <span class="text-muted">/</span>
@@ -543,7 +545,11 @@ defmodule DomovoyWeb.ComposerRunComponents do
         <.link
           :if={@stage}
           id="breadcrumb-workflow"
-          patch={run_link(@draft_id, nil, @run.id, scope: if(is_integer(@run.scope), do: @run.scope))}
+          patch={
+            run_link(@shell, @draft_id, nil, @run.id,
+              scope: if(is_integer(@run.scope), do: @run.scope)
+            )
+          }
           class="soft-link"
         >
           Workflow
@@ -581,7 +587,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
         <.link
           :for={decision <- @pending}
           id={"run-pending-link-#{decision}"}
-          patch={decision_path(@draft_id, @run.id, decision)}
+          patch={decision_path(@shell, @draft_id, @run.id, decision)}
           class={@secondary}
         >
           Answer {decision}
@@ -601,7 +607,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
         <.link
           :if={@checked}
           id="review-uncertainty"
-          patch={step_path(@draft_id, @run.id, {@checked.stage, @checked.node})}
+          patch={step_path(@shell, @draft_id, @run.id, {@checked.stage, @checked.node})}
           class={@primary}
         >
           Check {@checked.node}
@@ -672,7 +678,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
         <.link
           :if={@failed_step}
           id="view-failed-step"
-          patch={step_path(@draft_id, @run.id, @failed_step)}
+          patch={step_path(@shell, @draft_id, @run.id, @failed_step)}
           class={@secondary}
         >
           View failed step
@@ -702,7 +708,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
         <.link
           :if={@draft_id}
           id="back-to-draft"
-          patch={composer_path(@draft_id, @stage, nil)}
+          patch={composer_path(@shell, @draft_id, @stage, nil, [])}
           class={@secondary}
         >
           Back to draft
@@ -717,7 +723,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
       />
     </header>
 
-    <.run_notices run={@run} draft_id={@draft_id} stage={@stage} />
+    <.run_notices shell={@shell} run={@run} draft_id={@draft_id} stage={@stage} />
     """
   end
 
@@ -737,12 +743,13 @@ defmodule DomovoyWeb.ComposerRunComponents do
   defp failed_step(_run), do: nil
 
   @spec step_path(
+          shell :: DomovoyWeb.Shell.t(),
           draft_id :: String.t() | nil,
           run_id :: String.t(),
           step :: {String.t(), String.t()}
         ) :: String.t()
-  defp step_path(draft_id, run_id, {stage, node}),
-    do: run_link(draft_id, stage, run_id, node: node)
+  defp step_path(shell, draft_id, run_id, {stage, node}),
+    do: run_link(shell, draft_id, stage, run_id, node: node)
 
   # The command whose request is in flight or accepted, so its button can't be pressed
   # again.
@@ -766,6 +773,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
   defp op_text(%{command: :unpause}), do: "Unpause accepted. Continuing this run"
   defp op_text(%{command: :reconcile}), do: "Check recorded. The step runs again"
 
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :run, :map, required: true
   attr :draft_id, :string, default: nil
   attr :stage, :string, default: nil
@@ -810,7 +818,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
       </span>
       <.link
         id="reload-run"
-        navigate={run_link(@draft_id, @stage, @run.id)}
+        navigate={run_link(@shell, @draft_id, @stage, @run.id, [])}
         class={@secondary}
       >
         Reload
@@ -958,6 +966,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
   The run's outline: its status, the generation the graph shows once the run has more
   than one, recent runs and the snapshot's inputs.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :draft_id, :string, default: nil
   attr :stage, :string, default: nil
   attr :run, :map, required: true
@@ -1025,7 +1034,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
         <p :for={decision <- @pending}>
           <.link
             id={"run-pending-#{decision}"}
-            patch={decision_path(@draft_id, @run.id, decision)}
+            patch={decision_path(@shell, @draft_id, @run.id, decision)}
             class="soft-link"
           >
             {decision} is waiting for a decision
@@ -1035,6 +1044,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
     </section>
     <div class="border-t border-base-300">
       <.recent_runs
+        shell={@shell}
         runs={@recent}
         draft_id={@draft_id}
         stage={@stage}
@@ -1810,18 +1820,20 @@ defmodule DomovoyWeb.ComposerRunComponents do
   end
 
   @spec decision_path(
+          shell :: DomovoyWeb.Shell.t(),
           draft_id :: String.t() | nil,
           run_id :: String.t(),
           decision :: String.t()
         ) :: String.t()
-  defp decision_path(draft_id, run_id, decision),
-    do: run_link(draft_id, nil, run_id, node: decision)
+  defp decision_path(shell, draft_id, run_id, decision),
+    do: run_link(shell, draft_id, nil, run_id, node: decision)
 
   @doc """
   The run switcher: a draft's runs that may need attention first, then its newest, each
   with its summary's status and opening that run. A run with no summary yet shows as
   needing a check. Its links lead to the Runs view for this draft.
   """
+  attr :shell, :atom, required: true, values: [:composer, :dashboard]
   attr :runs, :list, required: true, doc: "runs with their summaries, attention first"
   attr :draft_id, :string, default: nil
   attr :stage, :string, default: nil
@@ -1846,7 +1858,7 @@ defmodule DomovoyWeb.ComposerRunComponents do
       <ul class="space-y-1 text-sm">
         <li :for={row <- @runs} :key={row.id} id={"recent-run-#{row.id}"}>
           <.link
-            patch={run_link(@draft_id, @stage, row.id)}
+            patch={run_link(@shell, @draft_id, @stage, row.id, [])}
             aria-current={if(row.id == @current, do: "page")}
             class={[
               "soft-link flex items-center gap-2",
