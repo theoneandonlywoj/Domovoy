@@ -56,6 +56,7 @@ defmodule DomovoyWeb.Layouts do
       phx-hook="Shortcuts"
       data-prefixes={Enum.join(Keymap.prefixes(), " ")}
       data-hints-key={Keymap.key("app.hints")}
+      data-focus-key={Keymap.key("search.focus")}
       class="flex h-dvh overflow-hidden"
     >
       <nav

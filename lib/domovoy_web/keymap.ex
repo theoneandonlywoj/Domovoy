@@ -27,6 +27,10 @@ defmodule DomovoyWeb.Keymap do
     end
   end
 
+  @doc "The key at 0-based `index` of a list action; nil past the end; raises for an unknown action."
+  @spec key(action :: action(), index :: non_neg_integer()) :: String.t() | nil
+  def key(action, index) when is_integer(index) and index >= 0, do: Enum.at(keys(action), index)
+
   @doc "Every key of `action`, in order; raises for an unknown action."
   @spec keys(action()) :: [String.t()]
   def keys(action) do
@@ -43,9 +47,17 @@ defmodule DomovoyWeb.Keymap do
   @spec attrs(action() | nil) :: [{String.t(), String.t()}]
   def attrs(nil), do: []
 
-  def attrs(action) do
-    key = key(action)
+  def attrs(action), do: action |> key() |> build_attrs()
 
+  @doc "The shortcut attributes of `index` of a list action; `[]` for a nil action or past the end."
+  @spec attrs(action :: action() | nil, index :: non_neg_integer()) :: [{String.t(), String.t()}]
+  def attrs(nil, _index), do: []
+  def attrs(action, index), do: action |> key(index) |> build_attrs()
+
+  @spec build_attrs(key :: String.t() | nil) :: [{String.t(), String.t()}]
+  defp build_attrs(nil), do: []
+
+  defp build_attrs(key) do
     case aria(key) do
       nil -> [{"data-shortcut", key}]
       aria -> [{"data-shortcut", key}, {"aria-keyshortcuts", aria}]

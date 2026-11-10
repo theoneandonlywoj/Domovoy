@@ -12,12 +12,16 @@ export const typing = target =>
 export const modalOpen = doc => Boolean(doc.querySelector(`[aria-modal='true']:not(${DRAWER})`))
 
 // What one keydown does. `pending` is the armed prefix or null.
-export function decide({key, altKey, metaKey, ctrlKey, repeat, isComposing, typing, modal, pending, prefixes, hintsKey}) {
+export function decide({key, altKey, metaKey, ctrlKey, repeat, isComposing, typing, modal, pending, prefixes, hintsKey, focusKey}) {
+  // Cmd/Ctrl+K focuses the search field; like every shortcut, not while typing and never under a modal.
+  if ((metaKey || ctrlKey) && !altKey && !repeat && !isComposing && !typing && focusKey && key?.toLowerCase() === "k")
+    return modal ? {type: "ignore"} : {type: "focus", combo: focusKey}
   if (altKey || metaKey || ctrlKey || repeat || isComposing || typing) return {type: "ignore"}
   if (key === "Escape") return {type: "hide"}
   if (modal) return pending ? {type: "clear"} : {type: "ignore"}
   if (pending) return {type: "go", combo: `${pending} ${key}`}
   if (key === hintsKey) return {type: "hints"}
+  if (focusKey && key === focusKey) return {type: "focus", combo: key}
   if (prefixes.includes(key)) return {type: "arm", prefix: key}
   return {type: "ignore"}
 }
