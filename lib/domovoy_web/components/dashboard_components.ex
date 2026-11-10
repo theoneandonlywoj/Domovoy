@@ -8,27 +8,79 @@ defmodule DomovoyWeb.DashboardComponents do
 
   use DomovoyWeb, :html
 
+  alias DomovoyWeb.Keymap
+
   @chip "soft-btn inline-flex items-center gap-2 px-2.5 py-1 text-sm"
-  @count "rounded-full bg-sunken px-1.5 text-xs text-muted"
+  @count "rounded-full bg-sunken px-1.5 text-xs tabular-nums text-muted"
   @meta "text-xs text-muted"
 
   @doc """
-  The panel's search box. It sends `search` as you type, debounced.
+  The panel's search field: a magnifier label, the text input and `⌘` `K` hints. It sends
+  `search` as you type, debounced. The wrapper carries the `search.focus` key and
+  `data-shortcut-focus`, so `/` and Cmd/Ctrl+K focus the input.
+
+  The input is hand-built, a deliberate exception to `<.input>`: that component renders its
+  own wrapper and label, so the icon and the kbd keys could not sit inside the field's frame.
   """
   attr :form, Phoenix.HTML.Form, required: true, doc: "a form `as: :search` with a `q` field"
   attr :placeholder, :string, required: true, doc: "the placeholder, also its accessible name"
 
   def search_bar(assigns) do
     ~H"""
-    <.form for={@form} id="dashboard-search" phx-change="search" phx-submit="search">
-      <.input
-        field={@form[:q]}
-        type="search"
-        phx-debounce="300"
-        placeholder={@placeholder}
-        aria-label={@placeholder}
-      />
+    <.form for={@form} id="dashboard-search" role="search" phx-change="search" phx-submit="search">
+      <div
+        id="dashboard-search-field"
+        data-shortcut={Keymap.key("search.focus")}
+        data-shortcut-focus
+        class="dashboard-search flex min-h-11 items-center gap-2.5 px-3"
+      >
+        <label for={@form[:q].id} class="flex text-muted">
+          <.icon name="hero-magnifying-glass" class="size-5" />
+          <span class="sr-only">{@placeholder}</span>
+        </label>
+        <input
+          id={@form[:q].id}
+          name={@form[:q].name}
+          value={@form[:q].value}
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          phx-debounce="300"
+          placeholder={@placeholder}
+          aria-keyshortcuts={"#{Keymap.aria(Keymap.key("search.focus"))} Meta+K Control+K"}
+          class="h-10 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
+        />
+        <kbd class="dashboard-kbd hidden sm:inline-block">⌘</kbd>
+        <kbd class="dashboard-kbd hidden sm:inline-block">K</kbd>
+      </div>
     </.form>
+    """
+  end
+
+  @doc """
+  The active text filter, with a link that clears it and keeps the status. Renders nothing
+  for an empty query.
+  """
+  attr :query, :string, required: true
+  attr :clear, :string, required: true, doc: "the panel path without q"
+
+  def query_chip(assigns) do
+    ~H"""
+    <span
+      :if={@query != ""}
+      id="dashboard-filter-query"
+      class="soft-chip inline-flex min-h-9 max-w-full items-center gap-1 pr-1 pl-2.5 text-sm"
+    >
+      <span class="max-w-[16rem] truncate">Filtered by "{@query}"</span>
+      <.link
+        id="dashboard-filter-clear"
+        patch={@clear}
+        aria-label="Clear the filter"
+        class="flex size-7 items-center justify-center text-muted transition-colors hover:text-base-content"
+      >
+        <.icon name="hero-x-mark-micro" class="size-4" />
+      </.link>
+    </span>
     """
   end
 
@@ -151,27 +203,39 @@ defmodule DomovoyWeb.DashboardComponents do
   end
 
   @doc """
-  The job status chips, each with its count, patching the URL. The current one is marked
-  `aria-current`, which shares the pressed look.
+  The job status chips, each with its count, patching the URL. The chips carry the
+  `filter.pick` keys in order (`f 1` is All … `f 6` is Cancelled). The current one is marked
+  `aria-current`, which shares the pressed look. The query chip follows the group.
   """
   attr :chips, :list, required: true, doc: "`[%{value, label, count, path}]`"
   attr :status, :string, required: true, doc: "the current status value"
+  attr :query, :string, required: true, doc: "the current text filter"
+  attr :clear, :string, required: true, doc: "the jobs path without q"
 
   def status_chips(assigns) do
     assigns = assign(assigns, chip_class: @chip, count_class: @count)
 
     ~H"""
-    <div id="jobs-chips" role="group" aria-label="Filter jobs by status" class="flex flex-wrap gap-2">
-      <.link
-        :for={chip <- @chips}
-        id={"jobs-chip-#{chip.value}"}
-        patch={chip.path}
-        aria-current={chip.value == @status && "true"}
-        class={@chip_class}
+    <div id="jobs-filters" class="flex flex-wrap items-center gap-2">
+      <div
+        id="jobs-chips"
+        role="group"
+        aria-label="Filter jobs by status"
+        class="flex flex-wrap gap-2"
       >
-        {chip.label}
-        <span id={"jobs-chip-#{chip.value}-count"} class={@count_class}>{chip.count}</span>
-      </.link>
+        <.link
+          :for={{chip, i} <- Enum.with_index(@chips)}
+          id={"jobs-chip-#{chip.value}"}
+          patch={chip.path}
+          aria-current={chip.value == @status && "true"}
+          class={@chip_class}
+          {Keymap.attrs("filter.pick", i)}
+        >
+          {chip.label}
+          <span id={"jobs-chip-#{chip.value}-count"} class={@count_class}>{chip.count}</span>
+        </.link>
+      </div>
+      <.query_chip query={@query} clear={@clear} />
     </div>
     """
   end

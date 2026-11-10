@@ -451,6 +451,23 @@
   color: var(--color-primary);
 }
 .dashboard-progress { background: var(--gloss-gold); box-shadow: var(--gloss-glow); }
+/* The panel search field: a sunken frame that rings in primary while its input has focus. */
+.dashboard-search {
+  border-radius: var(--soft-radius-panel);
+  background: var(--color-sunken);
+  box-shadow: var(--soft-shadow-sunken);
+  transition: box-shadow 150ms ease-out;
+}
+.dashboard-search:focus-within { box-shadow: var(--soft-shadow-sunken), 0 0 0 2px var(--color-primary); }
+@media (prefers-reduced-motion: reduce) { .dashboard-search { transition: none; } }
+/* A key cap; it sets no display, so `hidden sm:inline-block` decides when it shows. */
+.dashboard-kbd {
+  padding: 0 .5rem;
+  font: 500 .75rem/1.25rem var(--font-mono);
+  color: var(--color-muted);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  border-radius: 999px;
+}
 
 /* Shortcut hints: `?` sets html[data-hints="on"]; each [data-shortcut] shows its key. */
 :where(html[data-hints="on"] [data-shortcut]) { position: relative; }
@@ -464,6 +481,9 @@
 }
 :where(html:has([aria-modal="true"]:not(#dashboard-drawer)) [data-shortcut])::after { display: none; }
 :where(html[data-hints-prefix="g"] [data-shortcut]:not([data-shortcut^="g "]))::after { opacity: .35; }
+:where(html[data-hints-prefix="f"] [data-shortcut]:not([data-shortcut^="f "]))::after { opacity: .35; }
+/* The field's `/` badge sits on the left, clear of the kbd keys at the right edge. */
+#dashboard-search-field[data-shortcut]::after { right: auto; left: .125rem; }
 @media (prefers-reduced-motion: reduce) { :where(html[data-hints="on"] [data-shortcut])::after { transition: none; } }
 
 /* Composer canvas */

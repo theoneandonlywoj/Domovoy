@@ -54,12 +54,16 @@ defmodule DomovoyWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} variant="dashboard" active={Atom.to_string(@live_action)}>
-      <div class="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
-        <header class="flex flex-wrap items-end justify-between gap-4">
-          <h1 class="font-display text-3xl">{@page_title}</h1>
-          <div :if={@live_action != :dashboard} class="w-full sm:w-72">
+      <div id="dashboard-panel" class="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
+        <header :if={@live_action != :dashboard} class="flex flex-wrap items-center gap-3">
+          <div class="w-full">
             <.search_bar form={@form} placeholder={placeholder(@live_action)} />
           </div>
+          <.query_chip
+            :if={@live_action != :jobs}
+            query={@query}
+            clear={panel_path(@live_action, "", @status)}
+          />
         </header>
 
         <div :if={@live_action == :dashboard} id="dashboard-tiles" class="grid gap-4 sm:grid-cols-3">
@@ -123,7 +127,12 @@ defmodule DomovoyWeb.DashboardLive do
         </div>
 
         <section :if={@live_action == :jobs} aria-label="Jobs" class="space-y-3">
-          <.status_chips chips={@chips} status={@status} />
+          <.status_chips
+            chips={@chips}
+            status={@status}
+            query={@query}
+            clear={panel_path(:jobs, "", @status)}
+          />
           <p id="jobs-count" class="text-xs text-muted">Showing {@count} of {@total}</p>
           <ul id="jobs" phx-update="stream" class="space-y-2">
             <.jobs_empty total={@total} />
