@@ -13,7 +13,7 @@ defmodule DomovoyWeb.KeymapTest do
     test "the real keymap parses and normalises single keys to lists" do
       keymap = @path |> File.read!() |> Spec.parse!()
 
-      assert keymap.prefixes == ["g", "f"]
+      assert keymap.prefixes == ["g", "f", "c"]
       assert keymap.scopes["page"]["go.workflows"] == ["g w"]
       assert keymap.scopes["page"]["app.hints"] == ["?"]
     end

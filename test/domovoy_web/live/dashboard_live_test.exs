@@ -86,7 +86,7 @@ defmodule DomovoyWeb.DashboardLiveTest do
 
       assert has_element?(
                view,
-               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g f"][data-hints-key="?"][data-focus-key="/"])
+               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g f c"][data-hints-key="?"][data-focus-key="/"])
              )
     end
 
