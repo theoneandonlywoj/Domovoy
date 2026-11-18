@@ -13,3 +13,7 @@
 for {name, outcome} <- Domovoy.Examples.Seeds.run() do
   IO.puts("Composer draft #{name}: #{outcome}")
 end
+
+for {key, outcome} <- Domovoy.Examples.DashboardSeeds.run() do
+  IO.puts("Dashboard #{key}: #{outcome}")
+end
