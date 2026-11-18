@@ -1,14 +1,18 @@
-defmodule Domovoy.Dashboard.Mock do
+defmodule Domovoy.Examples.DashboardSeeds do
   @moduledoc """
-  Static, in-memory projects and jobs for the `/dashboard` prototype. Nothing here is
-  persisted or fetched.
+  Reconciles the example dashboard projects and jobs: reads the saved slugs and job
+  numbers, then inserts each example whose key no row holds. An existing row is left
+  alone, whatever it now says, because it may hold a person's edits. Each insert is
+  one whole row, so an interrupted run leaves whole rows only and the next run adds
+  the missing ones; the job sequence is then moved past the highest number, never
+  back. A person's job holding a seeded number counts as that seed, kept.
 
   The data guarantees what the dashboard's filters and tests lean on:
 
-    * 6 projects, with ids including `borg` and `domovoy`; every project has exactly 14
-      `activity` values in `0..100`, one per day, oldest first.
-    * 16 jobs, covering every status in `running | queued | succeeded | failed | cancelled`
-      at least once.
+    * 6 projects, with slugs including `borg` and `domovoy`; every project has exactly
+      14 `activity` values in `0..100`, one per day, oldest first.
+    * 16 jobs, numbered 1027 to 1042, covering every status in
+      `running | queued | succeeded | failed | cancelled` at least once.
     * Exactly 2 jobs are running, one in `borg` and one elsewhere. Every running job has
       an integer `progress`, and every other job has `nil`.
     * `borg` has jobs in at least two statuses.
@@ -17,38 +21,17 @@ defmodule Domovoy.Dashboard.Mock do
       that project alone.
   """
 
-  @type job_status :: :running | :queued | :succeeded | :failed | :cancelled
-  @type project_status :: :running | :healthy | :failing | :attention | :idle
+  import Ecto.Query
 
-  @type project :: %{
-          id: String.t(),
-          name: String.t(),
-          description: String.t(),
-          status: project_status(),
-          repos: non_neg_integer(),
-          worktrees: non_neg_integer(),
-          jobs: non_neg_integer(),
-          workflows: non_neg_integer(),
-          path: String.t(),
-          activity: [0..100]
-        }
+  alias Domovoy.Dashboard.Job
+  alias Domovoy.Dashboard.Project
+  alias Domovoy.Repo
 
-  @type job :: %{
-          id: pos_integer(),
-          title: String.t(),
-          workflow: String.t(),
-          project: String.t(),
-          branch: String.t(),
-          trigger: String.t(),
-          status: job_status(),
-          duration: String.t(),
-          when: String.t(),
-          progress: 0..100 | nil
-        }
+  @type outcome :: {key :: String.t(), :created | :kept}
 
   @projects [
     %{
-      id: "borg",
+      slug: "borg",
       name: "Borg",
       description: "Borg coding dashboard: worktrees, agents and pull requests in one place.",
       status: :running,
@@ -60,7 +43,7 @@ defmodule Domovoy.Dashboard.Mock do
       activity: [12, 30, 45, 20, 60, 75, 40, 55, 80, 65, 90, 70, 85, 95]
     },
     %{
-      id: "domovoy",
+      slug: "domovoy",
       name: "Domovoy",
       description: "Workflow composer and run viewer for the agent engine.",
       status: :healthy,
@@ -72,7 +55,7 @@ defmodule Domovoy.Dashboard.Mock do
       activity: [40, 35, 50, 65, 30, 20, 55, 70, 60, 45, 80, 75, 50, 65]
     },
     %{
-      id: "atlas",
+      slug: "atlas",
       name: "Atlas",
       description: "Map tiles and geocoding service behind the field apps.",
       status: :failing,
@@ -84,7 +67,7 @@ defmodule Domovoy.Dashboard.Mock do
       activity: [10, 0, 25, 30, 15, 5, 40, 20, 10, 35, 0, 15, 25, 30]
     },
     %{
-      id: "ledger",
+      slug: "ledger",
       name: "Ledger",
       description: "Billing exports and monthly invoice reconciliation.",
       status: :attention,
@@ -96,7 +79,7 @@ defmodule Domovoy.Dashboard.Mock do
       activity: [5, 10, 0, 0, 20, 15, 30, 25, 10, 5, 40, 35, 20, 10]
     },
     %{
-      id: "harbor",
+      slug: "harbor",
       name: "Harbor",
       description: "Container images and deploy pipelines for staging.",
       status: :running,
@@ -108,7 +91,7 @@ defmodule Domovoy.Dashboard.Mock do
       activity: [60, 55, 70, 65, 50, 45, 80, 85, 75, 90, 60, 70, 100, 80]
     },
     %{
-      id: "quill",
+      slug: "quill",
       name: "Quill",
       description: "Docs site and changelog generator.",
       status: :idle,
@@ -123,7 +106,7 @@ defmodule Domovoy.Dashboard.Mock do
 
   @jobs [
     %{
-      id: 1042,
+      number: 1042,
       title: "Port worktree cards to the new chrome",
       workflow: "implement-phase",
       project: "borg",
@@ -131,11 +114,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :running,
       duration: "12m",
-      when: "now",
+      when_label: "now",
       progress: 64
     },
     %{
-      id: 1041,
+      number: 1041,
       title: "Review pull request filters",
       workflow: "review",
       project: "borg",
@@ -143,11 +126,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "schedule",
       status: :queued,
       duration: "—",
-      when: "queued",
+      when_label: "queued",
       progress: nil
     },
     %{
-      id: 1040,
+      number: 1040,
       title: "Fix agent log scroll",
       workflow: "fix-bug",
       project: "borg",
@@ -155,11 +138,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :succeeded,
       duration: "8m",
-      when: "1h ago",
+      when_label: "1h ago",
       progress: nil
     },
     %{
-      id: 1039,
+      number: 1039,
       title: "Upgrade the Phoenix dependency",
       workflow: "upgrade-deps",
       project: "borg",
@@ -167,11 +150,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "schedule",
       status: :failed,
       duration: "21m",
-      when: "3h ago",
+      when_label: "3h ago",
       progress: nil
     },
     %{
-      id: 1038,
+      number: 1038,
       title: "Split the keymap module",
       workflow: "refactor",
       project: "borg",
@@ -179,11 +162,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :cancelled,
       duration: "2m",
-      when: "yesterday",
+      when_label: "yesterday",
       progress: nil
     },
     %{
-      id: 1037,
+      number: 1037,
       title: "Build the deploy image",
       workflow: "release",
       project: "harbor",
@@ -191,11 +174,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "push",
       status: :running,
       duration: "4m",
-      when: "now",
+      when_label: "now",
       progress: 30
     },
     %{
-      id: 1036,
+      number: 1036,
       title: "Roll staging back",
       workflow: "rollback",
       project: "harbor",
@@ -203,11 +186,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :succeeded,
       duration: "3m",
-      when: "2h ago",
+      when_label: "2h ago",
       progress: nil
     },
     %{
-      id: 1035,
+      number: 1035,
       title: "Restyle the composer",
       workflow: "implement-phase",
       project: "domovoy",
@@ -215,11 +198,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :succeeded,
       duration: "34m",
-      when: "30m ago",
+      when_label: "30m ago",
       progress: nil
     },
     %{
-      id: 1034,
+      number: 1034,
       title: "Seed example drafts",
       workflow: "fix-bug",
       project: "domovoy",
@@ -227,11 +210,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :succeeded,
       duration: "6m",
-      when: "yesterday",
+      when_label: "yesterday",
       progress: nil
     },
     %{
-      id: 1033,
+      number: 1033,
       title: "Run history pagination",
       workflow: "review",
       project: "domovoy",
@@ -239,11 +222,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "push",
       status: :queued,
       duration: "—",
-      when: "queued",
+      when_label: "queued",
       progress: nil
     },
     %{
-      id: 1032,
+      number: 1032,
       title: "Canvas auto-fit regression",
       workflow: "fix-bug",
       project: "domovoy",
@@ -251,11 +234,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "schedule",
       status: :failed,
       duration: "11m",
-      when: "2 days ago",
+      when_label: "2 days ago",
       progress: nil
     },
     %{
-      id: 1031,
+      number: 1031,
       title: "Refresh map tiles",
       workflow: "nightly",
       project: "atlas",
@@ -263,11 +246,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "schedule",
       status: :failed,
       duration: "45m",
-      when: "6h ago",
+      when_label: "6h ago",
       progress: nil
     },
     %{
-      id: 1030,
+      number: 1030,
       title: "Geocoder cache warm-up",
       workflow: "nightly",
       project: "atlas",
@@ -275,11 +258,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "schedule",
       status: :cancelled,
       duration: "1m",
-      when: "yesterday",
+      when_label: "yesterday",
       progress: nil
     },
     %{
-      id: 1029,
+      number: 1029,
       title: "Monthly invoice export",
       workflow: "export",
       project: "ledger",
@@ -287,11 +270,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "schedule",
       status: :queued,
       duration: "—",
-      when: "queued",
+      when_label: "queued",
       progress: nil
     },
     %{
-      id: 1028,
+      number: 1028,
       title: "Reconcile October",
       workflow: "reconcile",
       project: "ledger",
@@ -299,11 +282,11 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "manual",
       status: :succeeded,
       duration: "18m",
-      when: "3 days ago",
+      when_label: "3 days ago",
       progress: nil
     },
     %{
-      id: 1027,
+      number: 1027,
       title: "Publish the changelog",
       workflow: "release",
       project: "quill",
@@ -311,16 +294,72 @@ defmodule Domovoy.Dashboard.Mock do
       trigger: "push",
       status: :succeeded,
       duration: "2m",
-      when: "4 days ago",
+      when_label: "4 days ago",
       progress: nil
     }
   ]
 
-  @doc "The mock projects, in display order."
-  @spec projects() :: [project()]
-  def projects, do: @projects
+  @doc """
+  Runs the reconciliation, projects first. Raises on a failed insert or a job naming an
+  unknown project, with the failing fields only, never a value.
+  """
+  @spec run() :: [outcome()]
+  def run do
+    slugs = MapSet.new(Repo.all(from(project in Project, select: project.slug)))
 
-  @doc "The mock jobs, newest first."
-  @spec jobs() :: [job()]
-  def jobs, do: @jobs
+    projects =
+      for %{slug: slug} = project <- @projects do
+        key = "project " <> slug
+        if slug in slugs, do: {key, :kept}, else: {key, create_project!(project)}
+      end
+
+    project_ids = Map.new(Repo.all(from(project in Project, select: {project.slug, project.id})))
+    numbers = MapSet.new(Repo.all(from(job in Job, select: job.number)))
+
+    jobs =
+      for %{number: number} = job <- @jobs do
+        key = "job #" <> Integer.to_string(number)
+        if number in numbers, do: {key, :kept}, else: {key, create_job!(job, project_ids)}
+      end
+
+    # The sequence moves past the seeded numbers, and never below where it already is.
+    Repo.query!("""
+    SELECT setval(pg_get_serial_sequence('dashboard_jobs', 'number'),
+                  GREATEST(COALESCE((SELECT MAX(number) FROM dashboard_jobs), 1),
+                           (SELECT last_value FROM dashboard_jobs_number_seq)))
+    """)
+
+    projects ++ jobs
+  end
+
+  @spec create_project!(project :: map()) :: :created
+  defp create_project!(%{slug: slug} = project) do
+    changeset = Project.seed_changeset(%Project{}, project)
+
+    if Ecto.Changeset.get_change(changeset, :slug) != slug,
+      do: raise("Seed project #{slug}: its name does not slugify to its key")
+
+    insert!(changeset, "project #{slug}")
+  end
+
+  @spec create_job!(job :: map(), project_ids :: %{String.t() => String.t()}) :: :created
+  defp create_job!(%{number: number, project: slug} = job, project_ids) do
+    project_id =
+      Map.get(project_ids, slug) || raise "Seed job ##{number}: unknown project #{slug}"
+
+    %Job{}
+    |> Job.seed_changeset(Map.put(job, :project_id, project_id))
+    |> insert!("job ##{number}")
+  end
+
+  @spec insert!(changeset :: Ecto.Changeset.t(), key :: String.t()) :: :created
+  defp insert!(changeset, key) do
+    case Repo.insert(changeset) do
+      {:ok, _row} ->
+        :created
+
+      {:error, changeset} ->
+        raise "Seed #{key} could not be saved: #{inspect(Keyword.keys(changeset.errors))}"
+    end
+  end
 end

@@ -502,7 +502,7 @@ html[data-hints="on"] .dashboard-kbd { display: inline-block; }
 :where(html:has([aria-modal="true"]:not(#dashboard-drawer)) [data-shortcut])::after { display: none; }
 :where(html[data-hints-prefix="g"] [data-shortcut]:not([data-shortcut^="g "]))::after { opacity: .35; }
 :where(html[data-hints-prefix="f"] [data-shortcut]:not([data-shortcut^="f "]))::after { opacity: .35; }
-:where(html[data-hints-prefix="c"] [data-shortcut]:not([data-shortcut^="c "]))::after { opacity: .35; }
+:where(html[data-hints-prefix="n"] [data-shortcut]:not([data-shortcut^="n "]))::after { opacity: .35; }
 /* The field's `/` badge sits on the left, clear of the kbd keys at the right edge. */
 #dashboard-search-field[data-shortcut]::after { right: auto; left: .125rem; }
 @media (prefers-reduced-motion: reduce) { :where(html[data-hints="on"] [data-shortcut])::after { transition: none; } }

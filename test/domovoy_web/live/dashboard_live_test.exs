@@ -1,10 +1,13 @@
 defmodule DomovoyWeb.DashboardLiveTest do
-  use DomovoyWeb.ConnCase, async: true
+  use DomovoyWeb.ConnCase, async: false
 
   import Domovoy.ComposerFixtures
 
   alias Domovoy.Composer
-  alias Domovoy.Dashboard.Mock
+  alias Domovoy.Dashboard
+  alias Domovoy.Dashboard.Job
+  alias Domovoy.Dashboard.Project
+  alias Domovoy.Repo
   alias DomovoyWeb.DashboardComponents
   alias DomovoyWeb.Keymap
 
@@ -25,6 +28,15 @@ defmodule DomovoyWeb.DashboardLiveTest do
   @cards ~s(#projects > [id^="project-"])
   @rows ~s(#jobs > li[id^="job-"])
 
+  # `make db-seed-test` commits the seeds outside the sandbox, so the rows are cleared
+  # first; the delete and the seeds roll back with the test.
+  setup do
+    Repo.delete_all(Job)
+    Repo.delete_all(Project)
+    Domovoy.Examples.DashboardSeeds.run()
+    :ok
+  end
+
   describe "overview" do
     test "/dashboard is its own page with Dashboard active", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/dashboard")
@@ -36,10 +48,10 @@ defmodule DomovoyWeb.DashboardLiveTest do
       assert has_element?(view, "#dashboard-tiles")
     end
 
-    test "the tiles count the mock and the drafts", %{conn: conn} do
+    test "the tiles count the projects, the active jobs and the drafts", %{conn: conn} do
       draft!(scenario_a(), "One")
       draft!(scenario_a(), "Two")
-      active = Enum.count(Mock.jobs(), &(&1.status in [:running, :queued]))
+      active = Enum.count(Dashboard.list_jobs(), &(&1.status in [:running, :queued]))
       {:ok, view, _html} = live(conn, ~p"/dashboard")
 
       assert text(view, "#dashboard-tile-projects-count") == "6"
@@ -86,7 +98,7 @@ defmodule DomovoyWeb.DashboardLiveTest do
 
       assert has_element?(
                view,
-               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g f c"][data-hints-key="?"][data-focus-key="/"])
+               ~s(#dashboard-shell[phx-hook="Shortcuts"][data-prefixes="g f n"][data-hints-key="?"][data-focus-key="/"])
              )
     end
 
@@ -159,10 +171,34 @@ defmodule DomovoyWeb.DashboardLiveTest do
       view |> element("#dashboard-search") |> render_change(%{"search" => %{"q" => "borg"}})
       assert_patch(view, "/dashboard/projects?q=borg")
       assert count(view, @cards) == 1
-      assert has_element?(view, "#project-borg")
+      borg = Repo.get_by!(Project, slug: "borg")
+      assert has_element?(view, "#project-#{borg.id}")
 
       {:ok, view, _html} = live(conn, ~p"/dashboard/projects?q=zzz")
       assert count(view, @cards) == 0
+    end
+  end
+
+  describe "card ids" do
+    test "cards are keyed by UUID, so no card id equals another card's sub-id", %{conn: conn} do
+      Domovoy.DashboardFixtures.project!(%{"name" => "Borg Status", "path" => "~/x"})
+      {:ok, view, _html} = live(conn, ~p"/dashboard/projects")
+
+      for p <- Dashboard.list_projects() do
+        assert count(view, "#project-#{p.id}-status") == 1, p.name
+      end
+
+      refute has_element?(view, "#project-borg-status")
+
+      ids =
+        view
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query(@cards)
+        |> LazyHTML.attribute("id")
+
+      assert ids != []
+      assert Enum.all?(ids, &(&1 =~ ~r/^project-[0-9a-f-]{36}$/)), inspect(ids)
     end
   end
 
@@ -177,8 +213,9 @@ defmodule DomovoyWeb.DashboardLiveTest do
 
     test "search and a chip patch the URL, narrow the list and survive a reload", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/dashboard/jobs")
-      borg_jobs = Enum.count(Mock.jobs(), &(&1.project == "borg"))
-      [running] = Enum.filter(Mock.jobs(), &(&1.project == "borg" and &1.status == :running))
+      jobs = Dashboard.list_jobs()
+      borg_jobs = Enum.count(jobs, &(&1.project.slug == "borg"))
+      [running] = Enum.filter(jobs, &(&1.project.slug == "borg" and &1.status == :running))
 
       view |> element("#dashboard-search") |> render_change(%{"search" => %{"q" => "borg"}})
       assert_patch(view, "/dashboard/jobs?q=borg")
@@ -188,11 +225,11 @@ defmodule DomovoyWeb.DashboardLiveTest do
       view |> element("#jobs-chip-running") |> render_click()
       assert_patch(view, "/dashboard/jobs?q=borg&status=running")
       assert count(view, @rows) == 1
-      assert has_element?(view, "#job-#{running.id}-progress")
+      assert has_element?(view, "#job-#{running.number}-progress")
 
       {:ok, view, _html} = live(conn, ~p"/dashboard/jobs?q=borg&status=running")
       assert count(view, @rows) == 1
-      assert has_element?(view, "#job-#{running.id}")
+      assert has_element?(view, "#job-#{running.number}")
       assert has_element?(view, "#jobs-chip-running[aria-current]")
     end
 
@@ -226,6 +263,35 @@ defmodule DomovoyWeb.DashboardLiveTest do
                |> LazyHTML.text()
                |> String.trim() == expected
       end
+    end
+  end
+
+  describe "empty database" do
+    setup do
+      Repo.delete_all(Job)
+      Repo.delete_all(Project)
+      :ok
+    end
+
+    test "the projects and jobs panels say there is nothing yet", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dashboard/projects")
+      assert count(view, @cards) == 0
+      assert text(view, "#projects-empty") == "No projects yet."
+
+      {:ok, view, _html} = live(conn, ~p"/dashboard/jobs")
+      assert count(view, @rows) == 0
+      assert text(view, "#jobs-empty") == "No jobs yet."
+    end
+
+    test "searching rows with empty optional fields renders", %{conn: conn} do
+      project = Domovoy.DashboardFixtures.project!(%{"name" => "Nova"})
+      Domovoy.DashboardFixtures.job!(project, %{"branch" => ""})
+
+      {:ok, view, _html} = live(conn, ~p"/dashboard/projects?q=x")
+      assert text(view, "#projects-empty") == "No projects match."
+
+      {:ok, view, _html} = live(conn, ~p"/dashboard/jobs?q=x")
+      assert text(view, "#jobs-empty") == "No jobs match."
     end
   end
 

@@ -947,3 +947,20 @@ and `join_price_terms`.
 
 Seeds keep a draft that already exists, so a draft saved before this keeps the old names, and
 its decider returns choice names the decision no longer has. Delete that draft and seed again.
+
+## Dashboard create modals — 2026-11-18
+
+The New workflow, New project and New job modals and the delete confirmation, with
+Escape owned by each dialog's colocated hook. Run these with `mix phx.server`; no row has
+been run yet, so each reads Not run until it is. Record only the rows actually walked.
+
+| Row | Result | How |
+|---|---|---|
+| Each shortcut on its own panel | Not run | `n w`, `n p` and `n j` open their modal on Workflows, Projects and Jobs, with the first field focused; `n p` on Jobs does nothing |
+| Shortcuts under a modal | Not run | With a modal open, `g d` does nothing and the hints are hidden |
+| Plain Escape | Not run | Esc closes each create modal and the delete confirmation; focus returns to the + button or the Delete button |
+| Escape during an IME composition | Not run | Escape that cancels a Japanese or Chinese composition keeps the dialog open, in Chrome and in Safari |
+| No Escape after close | Not run | After a dialog closes, `liveSocket.enableDebug()` shows no `close_create` or `cancel_delete` push on a further Escape |
+| Escape with focus on the body | Not run | Create with a refused title, so the disabled button drops focus to the body; Esc still closes the dialog |
+| Cmd+Enter | Not run | Cmd+Enter (Ctrl+Enter) submits each modal |
+| Seeds twice (optional) | Not run | `mix run priv/repo/seeds.exs` twice prints only `kept` on the second run |

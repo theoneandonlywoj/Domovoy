@@ -7,6 +7,8 @@ defmodule Domovoy.Examples.SeedsTest do
   alias Domovoy.Composer.Document
   alias Domovoy.Composer.Draft
   alias Domovoy.Composer.Issue
+  alias Domovoy.Dashboard.Job
+  alias Domovoy.Dashboard.Project
   alias Domovoy.Examples.Seeds
 
   @engine_names ["cracow_prices", "cracow_review", "create_worktree"]
@@ -14,6 +16,8 @@ defmodule Domovoy.Examples.SeedsTest do
   # `make db-seed-test` commits the seeds to this database, outside the sandbox. These
   # tests count on starting without them; the delete rolls back with the test.
   setup do
+    Repo.delete_all(Job)
+    Repo.delete_all(Project)
     Repo.delete_all(Draft)
     :ok
   end
@@ -30,7 +34,9 @@ defmodule Domovoy.Examples.SeedsTest do
   defp engine_names, do: drafts() |> Enum.map(& &1.document["name"]) |> Enum.sort()
 
   test "two runs leave exactly the three titled drafts" do
-    assert run_seeds() =~ "create_worktree: created"
+    output = run_seeds()
+    assert output =~ "create_worktree: created"
+    assert output =~ "Dashboard project borg: created"
     first = drafts()
 
     assert Enum.sort(Enum.map(first, & &1.title)) == [
@@ -41,7 +47,10 @@ defmodule Domovoy.Examples.SeedsTest do
 
     assert engine_names() == @engine_names
 
-    assert run_seeds() =~ "create_worktree: kept"
+    output = run_seeds()
+    assert output =~ "create_worktree: kept"
+    assert output =~ "Dashboard project borg: kept"
+    assert output =~ "Dashboard job #1042: kept"
     assert drafts() == first
   end
 
