@@ -2,10 +2,11 @@ defmodule DomovoyWeb.DashboardLive do
   @moduledoc """
   The dashboard: one panel per live action, beside the drawer. The overview links to each
   section through a tile with its count. Projects is a card grid
-  and Jobs a row list with status chips, both over mock data. Workflows lists the real
-  drafts as cards, each opening the composer under `/dashboard/workflows`. Search and
+  and Jobs a row list with status chips, both read from `Domovoy.Dashboard`. Workflows
+  lists the drafts as cards, each opening the composer under `/dashboard/workflows`. Search and
   status live in the URL, so a reload restores them; an unknown status falls back to All
-  and is never carried into the next patch.
+  and is never carried into the next patch. Workflows, Projects and Jobs each have a +
+  button that opens the create modal for their own entity, and only there.
   """
 
   use DomovoyWeb, :live_view
@@ -13,7 +14,7 @@ defmodule DomovoyWeb.DashboardLive do
   import DomovoyWeb.DashboardComponents
 
   alias Domovoy.Composer
-  alias Domovoy.Dashboard.Mock
+  alias Domovoy.Dashboard
 
   @statuses [
     {"All", "all"},
@@ -30,10 +31,11 @@ defmodule DomovoyWeb.DashboardLive do
     {:ok,
      socket
      |> stream_configure(:projects, dom_id: &"project-#{&1.id}")
-     |> stream_configure(:jobs, dom_id: &"job-#{&1.id}")
+     |> stream_configure(:jobs, dom_id: &"job-#{&1.number}")
      |> stream_configure(:drafts, dom_id: &"workflow-#{&1.id}")
-     |> assign(query: "", status: "all", count: 0, total: 0, chips: [])
+     |> assign(query: "", status: "all", count: 0, total: 0, chips: [], creating: nil)
      |> assign(latest_runs: %{}, create_form: draft_form(""), tiles: [], deleting: nil)
+     |> assign(project_options: [], workflow_options: [])
      |> stream(:projects, [])
      |> stream(:jobs, [])
      |> stream(:drafts, [])}
@@ -80,7 +82,100 @@ defmodule DomovoyWeb.DashboardLive do
           </.link>
         </div>
 
-        <.new_workflow :if={@live_action == :workflows} form={@create_form} />
+        <.new_fab
+          :if={@live_action == :workflows}
+          entity="workflow"
+          label="New workflow"
+          action="new.workflow"
+        />
+        <.create_modal
+          :if={@creating == :workflow}
+          entity="workflow"
+          title="New workflow"
+          explainer="A workflow is a graph of stages the agent engine runs. You'll shape it in the composer next."
+          form={@create_form}
+          submit="create"
+        >
+          <.input
+            field={@create_form[:title]}
+            type="text"
+            label="Title"
+            placeholder="Title"
+            phx-mounted={JS.focus()}
+            required
+          />
+        </.create_modal>
+        <.new_fab
+          :if={@live_action == :projects}
+          entity="project"
+          label="New project"
+          action="new.project"
+        />
+        <.new_fab :if={@live_action == :jobs} entity="job" label="New job" action="new.job" />
+        <.create_modal
+          :if={@creating == :project}
+          entity="project"
+          title="New project"
+          explainer="A project is a repository folder Domovoy works in. Its stats start at zero."
+          form={@create_form}
+          submit="create_project"
+        >
+          <.input
+            field={@create_form[:name]}
+            type="text"
+            label="Name"
+            phx-mounted={JS.focus()}
+            required
+          />
+          <.input
+            field={@create_form[:path]}
+            type="text"
+            label="Path"
+            placeholder="~/Repos/name"
+            required
+          />
+          <.input field={@create_form[:description]} type="textarea" label="Description" />
+        </.create_modal>
+        <.create_modal
+          :if={@creating == :job}
+          entity="job"
+          title="New job"
+          explainer="A job queues a workflow to run on a project's branch. It starts as Queued; nothing runs it yet."
+          form={@create_form}
+          submit="create_job"
+        >
+          <.input
+            field={@create_form[:title]}
+            type="text"
+            label="Title"
+            phx-mounted={JS.focus()}
+            required
+          />
+          <.input
+            field={@create_form[:draft_id]}
+            type="select"
+            label="Workflow"
+            prompt={
+              if @workflow_options == [], do: "Create a workflow first", else: "Choose a workflow"
+            }
+            options={@workflow_options}
+          />
+          <.input
+            field={@create_form[:project_id]}
+            type="select"
+            label="Project"
+            prompt={if @project_options == [], do: "Create a project first", else: "Choose a project"}
+            options={@project_options}
+          />
+          <.input field={@create_form[:branch]} type="text" label="Branch" />
+          <p
+            :if={@project_options == [] or @workflow_options == []}
+            id="dashboard-new-job-hint"
+            class="text-sm text-muted"
+          >
+            {job_hint(@project_options, @workflow_options)}
+          </p>
+        </.create_modal>
         <.confirm_delete_workflow :if={@live_action == :workflows} draft={@deleting} />
 
         <div
@@ -104,9 +199,7 @@ defmodule DomovoyWeb.DashboardLive do
           phx-update="stream"
           class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
         >
-          <p id="projects-empty" class="hidden py-6 text-sm text-muted only:block">
-            No projects match.
-          </p>
+          <.projects_empty total={@total} />
           <.project_card :for={{id, project} <- @streams.projects} id={id} project={project} />
         </div>
 
@@ -144,14 +237,66 @@ defmodule DomovoyWeb.DashboardLive do
     end
   end
 
-  def handle_event("create", %{"draft" => %{"title" => title}}, socket) when is_binary(title) do
+  # Each create modal opens only on its own panel; an unknown entity is ignored.
+  def handle_event("open_create", %{"entity" => "workflow"}, socket)
+      when socket.assigns.live_action == :workflows,
+      do: {:noreply, assign(socket, creating: :workflow, create_form: draft_form(""))}
+
+  def handle_event("open_create", %{"entity" => "project"}, socket)
+      when socket.assigns.live_action == :projects,
+      do:
+        {:noreply,
+         assign(socket, creating: :project, create_form: to_form(Dashboard.change_project()))}
+
+  def handle_event("open_create", %{"entity" => "job"}, socket)
+      when socket.assigns.live_action == :jobs do
+    {:noreply,
+     socket
+     |> assign(creating: :job, create_form: to_form(Dashboard.change_job()))
+     |> assign_job_options()}
+  end
+
+  def handle_event("close_create", _params, socket),
+    do: {:noreply, assign(socket, :creating, nil)}
+
+  def handle_event("create", %{"draft" => %{"title" => title}}, socket)
+      when is_binary(title) and socket.assigns.live_action == :workflows do
     case Composer.create_draft(%{title: title}) do
       {:ok, draft} ->
         {:noreply, push_navigate(socket, to: ~p"/dashboard/workflows/#{draft.id}")}
 
       {:error, changeset} ->
         shown = if Composer.text_safe?(title), do: title, else: ""
-        {:noreply, assign(socket, :create_form, draft_form(shown, changeset.errors))}
+
+        {:noreply,
+         assign(socket, creating: :workflow, create_form: draft_form(shown, changeset.errors))}
+    end
+  end
+
+  def handle_event("create_project", %{"project" => params}, socket)
+      when is_map(params) and socket.assigns.live_action == :projects do
+    case Dashboard.create_project(params) do
+      {:ok, _project} ->
+        {:noreply, socket |> assign(:creating, nil) |> load(:projects)}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, creating: :project, create_form: error_form(changeset))}
+    end
+  end
+
+  # The options are reloaded on error too, so a submit without an open modal still
+  # shows the right prompts.
+  def handle_event("create_job", %{"job" => params}, socket)
+      when is_map(params) and socket.assigns.live_action == :jobs do
+    case Dashboard.create_job(params) do
+      {:ok, _job} ->
+        {:noreply, socket |> assign(:creating, nil) |> load(:jobs)}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(creating: :job, create_form: error_form(changeset))
+         |> assign_job_options()}
     end
   end
 
@@ -193,16 +338,19 @@ defmodule DomovoyWeb.DashboardLive do
   @spec load(socket :: Phoenix.LiveView.Socket.t(), action :: atom()) ::
           Phoenix.LiveView.Socket.t()
   defp load(socket, :dashboard) do
-    active_jobs = Enum.count(Mock.jobs(), &(&1.status in [:running, :queued]))
-
     tiles = [
       %{
         key: "projects",
         label: "Projects",
-        count: length(Mock.projects()),
+        count: Dashboard.count_projects(),
         path: ~p"/dashboard/projects"
       },
-      %{key: "jobs", label: "Active jobs", count: active_jobs, path: ~p"/dashboard/jobs"},
+      %{
+        key: "jobs",
+        label: "Active jobs",
+        count: Dashboard.count_active_jobs(),
+        path: ~p"/dashboard/jobs"
+      },
       %{
         key: "workflows",
         label: "Workflows",
@@ -216,7 +364,7 @@ defmodule DomovoyWeb.DashboardLive do
 
   defp load(socket, :projects) do
     %{query: query} = socket.assigns
-    all = Mock.projects()
+    all = Dashboard.list_projects()
     shown = Enum.filter(all, &matches?(query, [&1.name, &1.description, &1.path]))
 
     socket
@@ -226,12 +374,12 @@ defmodule DomovoyWeb.DashboardLive do
 
   defp load(socket, :jobs) do
     %{query: query, status: status} = socket.assigns
-    all = Mock.jobs()
+    all = Dashboard.list_jobs()
 
     matched =
       Enum.filter(
         all,
-        &matches?(query, ["##{&1.id}", &1.title, &1.workflow, &1.project, &1.branch])
+        &matches?(query, ["##{&1.number}", &1.title, &1.workflow, &1.project.name, &1.branch])
       )
 
     counts = Enum.frequencies_by(matched, &Atom.to_string(&1.status))
@@ -282,12 +430,42 @@ defmodule DomovoyWeb.DashboardLive do
     to_form(%{"title" => title}, as: :draft, id: "draft", errors: errors)
   end
 
-  @spec matches?(query :: String.t(), fields :: [String.t()]) :: boolean()
+  @spec assign_job_options(socket :: Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp assign_job_options(socket) do
+    assign(socket,
+      project_options: Enum.map(Dashboard.list_projects(), &{&1.name, &1.id}),
+      workflow_options: Enum.map(Composer.list_drafts(), &{&1.title, &1.id})
+    )
+  end
+
+  # Phoenix.Ecto reads a field from `changes` before `params`, and both can hold text the
+  # page can't carry (NUL, broken UTF-8) or a non-string an `<.input>` can't render. Such
+  # params render empty and such changes are dropped; non-binary changes, like the
+  # looked-up keys, are kept.
+  @spec error_form(changeset :: Ecto.Changeset.t()) :: Phoenix.HTML.Form.t()
+  defp error_form(changeset) do
+    safe? = &(is_binary(&1) and Composer.text_safe?(&1))
+    params = Map.new(changeset.params, fn {k, v} -> {k, if(safe?.(v), do: v, else: "")} end)
+    changes = Map.reject(changeset.changes, fn {_k, v} -> is_binary(v) and not safe?.(v) end)
+    to_form(%{changeset | params: params, changes: changes})
+  end
+
+  @spec job_hint(projects :: list(), workflows :: list()) :: String.t()
+  defp job_hint(projects, workflows) do
+    [
+      projects == [] && "Create a project first.",
+      workflows == [] && "Create a workflow first."
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" ")
+  end
+
+  @spec matches?(query :: String.t(), fields :: [String.t() | nil]) :: boolean()
   defp matches?("", _fields), do: true
 
   defp matches?(query, fields) do
     needle = String.downcase(query)
-    Enum.any?(fields, &String.contains?(String.downcase(&1), needle))
+    Enum.any?(fields, &String.contains?(String.downcase(text(&1)), needle))
   end
 
   # Empty and "all" values are dropped; only Jobs carries a status.

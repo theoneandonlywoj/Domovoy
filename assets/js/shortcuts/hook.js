@@ -1,4 +1,4 @@
-// Page shortcuts on the dashboard shell: a prefix key (`g`, `f`) then a second key clicks the
+// Page shortcuts on the dashboard shell: a prefix key (`g`, `f`, `n`) then a second key clicks the
 // `[data-shortcut]` element bound to that pair, so its `<.link navigate>` or `<.link patch>` runs as
 // on a mouse click. The focus key (`/`) and Cmd/Ctrl+K focus the input of the `[data-shortcut-focus]`
 // element bound to `/`; Esc in it blurs and returns focus. `?` toggles hint badges on <html>, Escape

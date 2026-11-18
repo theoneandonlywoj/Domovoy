@@ -1,5 +1,5 @@
 {
-  "prefixes": ["g", "f", "c"],
+  "prefixes": ["g", "f", "n"],
   "scopes": {
     "page": {
       "go.dashboard": "g d",
@@ -9,7 +9,9 @@
       "app.hints": "?",
       "search.focus": "/",
       "filter.pick": ["f 1", "f 2", "f 3", "f 4", "f 5", "f 6"],
-      "new.workflow": "c w"
+      "new.workflow": "n w",
+      "new.project": "n p",
+      "new.job": "n j"
     }
   }
 }

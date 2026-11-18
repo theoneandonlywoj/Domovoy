@@ -86,93 +86,34 @@ defmodule DomovoyWeb.DashboardComponents do
   end
 
   @doc """
-  The floating New workflow button at the bottom right, with `c w` (`new.workflow`), and the
-  form it opens above itself: a title and Create. Esc or Cancel closes the form and gives focus
-  back to the button; Enter or Cmd/Ctrl+Enter creates. The form is always rendered (hidden until opened) and stays open while
-  the title has an error.
+  The floating + button at the bottom right of a panel, with its hover label and keymap key.
+  It remembers focus, then asks the server to open that entity's create modal; the modal's
+  scrim gives focus back here when it closes.
   """
-  attr :form, Phoenix.HTML.Form, required: true, doc: "a form `as: :draft` with a `title` field"
+  attr :entity, :string, required: true, doc: "`workflow`, `project` or `job`"
+  attr :label, :string, required: true, doc: "e.g. `New workflow`"
+  attr :action, :string, required: true, doc: "the keymap action, e.g. `new.workflow`"
 
-  def new_workflow(assigns) do
+  def new_fab(assigns) do
     ~H"""
     <div
-      id="dashboard-new-workflow-dock"
+      id={"dashboard-new-#{@entity}-dock"}
       class="fixed right-8 bottom-8 z-10 flex flex-col items-end gap-3"
     >
-      <div
-        id="dashboard-new-workflow-panel"
-        class={[
-          "dashboard-popover w-[min(22.5rem,calc(100vw-4rem))] flex-col gap-3 p-4",
-          if(@form.errors == [], do: "hidden", else: "flex")
-        ]}
-      >
-        <.form
-          for={@form}
-          id="dashboard-new-workflow"
-          phx-submit="create"
-          phx-hook=".NewWorkflowKeys"
-          data-close={close_new_workflow()}
-          class="flex flex-col gap-3"
-        >
-          <.input field={@form[:title]} type="text" label="New workflow" placeholder="Title" required />
-          <div class="flex justify-end gap-2">
-            <button
-              id="dashboard-cancel-workflow"
-              type="button"
-              phx-click={close_new_workflow()}
-              class="soft-btn inline-flex items-center gap-2 px-3 py-1.5 text-sm"
-            >
-              Cancel <kbd class="dashboard-kbd">esc</kbd>
-            </button>
-            <button
-              id="dashboard-create-workflow"
-              type="submit"
-              phx-disable-with="Creating…"
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-              class="soft-btn soft-btn-primary inline-flex items-center gap-2 px-3 py-1.5 text-sm"
-            >
-              Create <kbd class="dashboard-kbd">⌘↵</kbd>
-            </button>
-          </div>
-        </.form>
-        <%!-- Enter submits natively; Cmd/Ctrl+Enter is made explicit, since browsers differ.
-             Esc anywhere in the form (title or buttons) runs `data-close`. A key binding would
-             not do: LiveView fires `phx-keydown` only on the focused element itself. --%>
-        <script :type={Phoenix.LiveView.ColocatedHook} name=".NewWorkflowKeys">
-          export default {
-            mounted() {
-              this.el.addEventListener("keydown", event => {
-                if (event.isComposing) return
-                if (event.key === "Escape") {
-                  event.preventDefault()
-                  this.liveSocket.execJS(this.el, this.el.dataset.close)
-                } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault()
-                  const create = document.getElementById("dashboard-create-workflow")
-                  if (create && !create.disabled) this.el.requestSubmit(create)
-                }
-              })
-            }
-          }
-        </script>
-      </div>
       <div class="group flex items-center gap-3">
         <span
           aria-hidden="true"
           class="dashboard-popover flex translate-x-1 items-center gap-2 px-2.5 py-1.5 text-sm whitespace-nowrap opacity-0 transition duration-150 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 max-sm:hidden"
         >
-          New workflow <kbd class="dashboard-kbd">{Keymap.key("new.workflow")}</kbd>
+          {@label} <kbd class="dashboard-kbd">{Keymap.key(@action)}</kbd>
         </span>
         <button
-          id="dashboard-new-workflow-open"
+          id={"dashboard-new-#{@entity}-open"}
           type="button"
-          aria-label="New workflow"
-          aria-controls="dashboard-new-workflow-panel"
-          phx-click={
-            JS.toggle(to: "#dashboard-new-workflow-panel", display: "flex")
-            |> JS.focus(to: "##{@form[:title].id}")
-          }
-          {Keymap.attrs("new.workflow")}
+          aria-label={@label}
+          aria-haspopup="dialog"
+          phx-click={JS.push_focus() |> JS.push("open_create", value: %{entity: @entity})}
+          {Keymap.attrs(@action)}
           class="dashboard-fab flex size-14 items-center justify-center rounded-full"
         >
           <.icon name="hero-plus" class="size-7" />
@@ -182,9 +123,95 @@ defmodule DomovoyWeb.DashboardComponents do
     """
   end
 
-  defp close_new_workflow do
-    JS.hide(to: "#dashboard-new-workflow-panel")
-    |> JS.focus(to: "#dashboard-new-workflow-open")
+  @doc """
+  A centered create dialog over the scrim: heading, one-line explainer, the caller's fields,
+  Cancel (esc) and Create (⌘↵). Escape is handled by the form's hook, which skips it during
+  an IME composition. The caller renders it only while open, because any `[aria-modal]` in
+  the DOM blocks page shortcuts and hints.
+  """
+  attr :entity, :string, required: true
+  attr :title, :string, required: true, doc: "the dialog heading, e.g. `New workflow`"
+  attr :explainer, :string, required: true, doc: "one sentence on what this creates"
+  attr :form, Phoenix.HTML.Form, required: true
+  attr :submit, :string, required: true, doc: "the phx-submit event"
+  slot :inner_block, required: true, doc: "the `<.input>` fields"
+
+  def create_modal(assigns) do
+    ~H"""
+    <DomovoyWeb.ComposerComponents.modal_scrim focus_id={"dashboard-new-#{@entity}-focus"}>
+      <div
+        id={"dashboard-new-#{@entity}-dialog"}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={"dashboard-new-#{@entity}-title"}
+        aria-describedby={"dashboard-new-#{@entity}-explainer"}
+        class="dashboard-popover w-[min(28rem,calc(100vw-2rem))] space-y-4 p-5"
+      >
+        <h2 id={"dashboard-new-#{@entity}-title"} class="font-semibold">{@title}</h2>
+        <p id={"dashboard-new-#{@entity}-explainer"} class="text-sm text-muted">{@explainer}</p>
+        <.form
+          for={@form}
+          id={"dashboard-new-#{@entity}"}
+          phx-submit={@submit}
+          phx-hook=".CreateOnModEnter"
+          class="flex flex-col gap-3"
+        >
+          {render_slot(@inner_block)}
+          <div class="flex justify-end gap-2">
+            <button
+              id={"dashboard-cancel-#{@entity}"}
+              type="button"
+              phx-click="close_create"
+              class="soft-btn inline-flex items-center gap-2 px-3 py-1.5 text-sm"
+            >
+              Cancel <kbd class="dashboard-kbd">esc</kbd>
+            </button>
+            <button
+              id={"dashboard-create-#{@entity}"}
+              type="submit"
+              phx-disable-with="Creating…"
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+              class="soft-btn soft-btn-primary inline-flex items-center gap-2 px-3 py-1.5 text-sm"
+            >
+              Create <kbd class="dashboard-kbd">⌘↵</kbd>
+            </button>
+          </div>
+        </.form>
+      </div>
+      <%!-- Enter submits natively; Cmd/Ctrl+Enter is made explicit, since browsers differ.
+           Escape closes the dialog from a window listener, so it works with focus on the body. --%>
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".CreateOnModEnter">
+        export default {
+          mounted() {
+            this.el.addEventListener("keydown", event => {
+              if (event.isComposing || event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return
+              event.preventDefault()
+              const create = this.el.querySelector("button[type=submit]")
+              if (create && !create.disabled) this.el.requestSubmit(create)
+            })
+            // An IME composition owns Escape. Chrome and Firefox flag it with isComposing;
+            // Safari may end the composition first (keyCode 229, or a compositionend just
+            // before the keydown), so all three are skipped.
+            this.onCompositionEnd = () => {
+              this.justComposed = true
+              setTimeout(() => { this.justComposed = false }, 0)
+            }
+            this.onEscape = event => {
+              if (event.key !== "Escape" || event.isComposing || event.keyCode === 229 || this.justComposed) return
+              event.preventDefault()
+              this.pushEvent("close_create", {}).catch(() => {})
+            }
+            window.addEventListener("compositionend", this.onCompositionEnd, true)
+            window.addEventListener("keydown", this.onEscape)
+          },
+          destroyed() {
+            window.removeEventListener("compositionend", this.onCompositionEnd, true)
+            window.removeEventListener("keydown", this.onEscape)
+          }
+        }
+      </script>
+    </DomovoyWeb.ComposerComponents.modal_scrim>
+    """
   end
 
   @doc """
@@ -224,8 +251,6 @@ defmodule DomovoyWeb.DashboardComponents do
         aria-modal="true"
         aria-labelledby="confirm-delete-workflow-title"
         aria-describedby="confirm-delete-workflow-body"
-        phx-window-keydown="cancel_delete"
-        phx-key="escape"
         phx-hook=".ConfirmOnModEnter"
         class="dashboard-popover w-[min(24rem,calc(100vw-2rem))] space-y-3 p-5"
       >
@@ -257,19 +282,34 @@ defmodule DomovoyWeb.DashboardComponents do
           </button>
         </div>
       </div>
-      <%!-- Esc is the window binding above; Cmd/Ctrl+Enter clicks Delete, as in New workflow. --%>
+      <%!-- Esc cancels unless an IME composition owns it, as in New workflow;
+           Cmd/Ctrl+Enter clicks Delete. --%>
       <script :type={Phoenix.LiveView.ColocatedHook} name=".ConfirmOnModEnter">
         export default {
           mounted() {
+            this.onCompositionEnd = () => {
+              this.justComposed = true
+              setTimeout(() => { this.justComposed = false }, 0)
+            }
             this.onKey = event => {
+              if (event.key === "Escape") {
+                if (event.isComposing || event.keyCode === 229 || this.justComposed) return
+                event.preventDefault()
+                this.pushEvent("cancel_delete", {}).catch(() => {})
+                return
+              }
               if (event.key !== "Enter" || event.isComposing || !(event.metaKey || event.ctrlKey)) return
               event.preventDefault()
               const confirm = document.getElementById("confirm-delete-workflow-button")
               if (confirm && !confirm.disabled) confirm.click()
             }
+            window.addEventListener("compositionend", this.onCompositionEnd, true)
             window.addEventListener("keydown", this.onKey)
           },
-          destroyed() { window.removeEventListener("keydown", this.onKey) }
+          destroyed() {
+            window.removeEventListener("compositionend", this.onCompositionEnd, true)
+            window.removeEventListener("keydown", this.onKey)
+          }
         }
       </script>
     </DomovoyWeb.ComposerComponents.modal_scrim>
@@ -291,11 +331,25 @@ defmodule DomovoyWeb.DashboardComponents do
   end
 
   @doc """
+  The project grid's empty paragraph, shown only when it is the grid's only child. It
+  says whether there are no projects at all or none match the search.
+  """
+  attr :total, :integer, required: true, doc: "how many projects exist, before any filter"
+
+  def projects_empty(assigns) do
+    ~H"""
+    <p id="projects-empty" class="hidden py-6 text-sm text-muted only:block">
+      {if @total == 0, do: "No projects yet.", else: "No projects match."}
+    </p>
+    """
+  end
+
+  @doc """
   One project as a card: badge, name and status, description, counts, path and its last
   14 days of activity.
   """
-  attr :id, :string, required: true, doc: "the stream dom id, `project-<id>`"
-  attr :project, :map, required: true, doc: "a `Domovoy.Dashboard.Mock.project()`"
+  attr :id, :string, required: true, doc: "the stream dom id, `project-<uuid>`"
+  attr :project, :map, required: true, doc: "a `Domovoy.Dashboard.Project.t()`"
 
   def project_card(assigns) do
     assigns = assign(assigns, :meta, @meta)
@@ -355,8 +409,8 @@ defmodule DomovoyWeb.DashboardComponents do
   One job as a list row: status, number and title, then where and how it ran, with a
   progress bar while running.
   """
-  attr :id, :string, required: true, doc: "the stream dom id, `job-<id>`"
-  attr :job, :map, required: true, doc: "a `Domovoy.Dashboard.Mock.job()`"
+  attr :id, :string, required: true, doc: "the stream dom id, `job-<number>`"
+  attr :job, :map, required: true, doc: "a `Domovoy.Dashboard.Job.t()`, its project loaded"
 
   def job_row(assigns) do
     assigns = assign(assigns, :meta, @meta)
@@ -365,7 +419,7 @@ defmodule DomovoyWeb.DashboardComponents do
     <li id={@id} class="soft-row grid gap-1.5 px-4 py-3 text-sm">
       <div class="flex min-w-0 items-center gap-3">
         <.icon name={status_icon(@job.status)} class="size-4 shrink-0 text-muted" />
-        <span class="font-mono text-xs text-muted">#{@job.id}</span>
+        <span class="font-mono text-xs text-muted">#{@job.number}</span>
         <span class="min-w-0 flex-1 truncate font-medium">{@job.title}</span>
         <span id={"#{@id}-status"} data-run-pill={job_tone(@job.status)} class="run-pill shrink-0">
           <span :if={@job.status == :running} aria-hidden="true" class="flex">
@@ -376,11 +430,11 @@ defmodule DomovoyWeb.DashboardComponents do
       </div>
       <div class={["flex flex-wrap gap-x-4 gap-y-1", @meta]}>
         <span id={"#{@id}-workflow"}>{@job.workflow}</span>
-        <span id={"#{@id}-project"}>{@job.project}</span>
+        <span id={"#{@id}-project"}>{@job.project.name}</span>
         <span id={"#{@id}-branch"} class="font-mono">{@job.branch}</span>
         <span>{@job.trigger}</span>
         <span>{@job.duration}</span>
-        <span>{@job.when}</span>
+        <span>{@job.when_label}</span>
       </div>
       <div :if={@job.progress} class="h-1 overflow-hidden rounded-full bg-sunken">
         <div

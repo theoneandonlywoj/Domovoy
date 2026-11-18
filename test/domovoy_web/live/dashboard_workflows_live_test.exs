@@ -2,6 +2,7 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
   use DomovoyWeb.ConnCase
 
   import Domovoy.ComposerFixtures
+  import Domovoy.DashboardFixtures
 
   alias Domovoy.Composer
 
@@ -80,8 +81,14 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
     refute has_element?(view, "#workflow-#{draft.id}-last-run")
   end
 
+  defp open_new_workflow(view) do
+    view |> element("#dashboard-new-workflow-open") |> render_click()
+    view
+  end
+
   test "creating a workflow opens it in the dashboard", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+    open_new_workflow(view)
     assert has_element?(view, "#dashboard-create-workflow[phx-disable-with]")
 
     view
@@ -97,29 +104,40 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
     assert path == ~p"/dashboard/workflows/#{id}"
   end
 
-  test "a refused title shows an error and stays on the page", %{conn: conn} do
+  test "a refused title shows an error and keeps the dialog open", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+    open_new_workflow(view)
+    before = Composer.count_drafts()
 
     view |> form("#dashboard-new-workflow", draft: %{title: "   "}) |> render_submit()
 
-    assert has_element?(view, "#dashboard-new-workflow")
+    assert has_element?(view, "#dashboard-new-workflow-dialog")
     assert has_element?(view, "#dashboard-new-workflow .text-error")
-    # The form stays open while its title has an error.
-    refute has_element?(view, "#dashboard-new-workflow-panel.hidden")
+    assert Composer.count_drafts() == before
   end
 
-  test "the floating button carries c w and opens the hidden form", %{conn: conn} do
+  test "the floating button carries its shortcut and opens the dialog", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
 
     assert has_element?(
              view,
-             ~s(#dashboard-new-workflow-dock > div > button#dashboard-new-workflow-open[data-shortcut="c w"][aria-controls="dashboard-new-workflow-panel"][phx-click])
+             ~s(#dashboard-new-workflow-open[data-shortcut="n w"][aria-haspopup="dialog"][phx-click])
            )
 
-    assert has_element?(view, "#dashboard-new-workflow-panel.hidden #dashboard-new-workflow")
-    assert has_element?(view, ~s(#dashboard-cancel-workflow[phx-click]))
-    # The form hook closes on Esc (data-close) and submits on Cmd/Ctrl+Enter, announced on Create.
-    assert has_element?(view, ~s(#dashboard-new-workflow[phx-hook][data-close]))
+    # Closed means absent: any [aria-modal] in the DOM blocks page shortcuts and hints.
+    refute has_element?(view, "#dashboard-new-workflow-dialog")
+    open_new_workflow(view)
+
+    assert has_element?(
+             view,
+             ~s(#dashboard-new-workflow-dialog[role="dialog"][aria-modal="true"])
+           )
+
+    refute has_element?(view, "#dashboard-new-workflow-dialog[phx-window-keydown]")
+
+    assert has_element?(view, "#dashboard-new-workflow-explainer")
+    assert has_element?(view, "#draft_title[phx-mounted]")
+    assert has_element?(view, ~s(#dashboard-new-workflow[phx-hook]))
 
     assert has_element?(
              view,
@@ -127,10 +145,50 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
            )
   end
 
-  test "only the workflows panel has the floating button", %{conn: conn} do
-    for path <- ["/dashboard", "/dashboard/projects", "/dashboard/jobs"] do
+  test "Cancel and the hook's close event close the dialog", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+    open_new_workflow(view)
+    render_click(element(view, "#dashboard-cancel-workflow"))
+    refute has_element?(view, "#dashboard-new-workflow-dialog")
+
+    open_new_workflow(view)
+    view |> element("#dashboard-new-workflow") |> render_hook("close_create", %{})
+    refute has_element?(view, "#dashboard-new-workflow-dialog")
+  end
+
+  # No automated test runs the colocated hooks, so this only shows the IME-safe Escape
+  # code is in place; the browser checklist covers its behaviour.
+  test "the dialogs own Escape in their hooks, not a window binding" do
+    src = File.read!("lib/domovoy_web/components/dashboard_components.ex")
+
+    refute src =~ "phx-window-keydown"
+    assert src =~ ~s|pushEvent("close_create"|
+    assert src =~ ~s|pushEvent("cancel_delete"|
+    assert length(String.split(src, "isComposing")) - 1 >= 2
+  end
+
+  test "no panel binds the old create prefix", %{conn: conn} do
+    for path <- ["/dashboard", "/dashboard/projects", "/dashboard/jobs", "/dashboard/workflows"] do
       {:ok, view, _html} = live(conn, path)
-      refute has_element?(view, "#dashboard-new-workflow-open")
+      refute has_element?(view, ~s([data-shortcut^="c "]))
+    end
+  end
+
+  test "each panel has only its own button", %{conn: conn} do
+    panels = [
+      {"/dashboard", nil},
+      {"/dashboard/projects", "project"},
+      {"/dashboard/jobs", "job"},
+      {"/dashboard/workflows", "workflow"}
+    ]
+
+    for {path, own} <- panels do
+      {:ok, view, _html} = live(conn, path)
+
+      for entity <- ["project", "job", "workflow"] do
+        assert has_element?(view, "#dashboard-new-#{entity}-open") == (entity == own)
+      end
     end
   end
 
@@ -145,6 +203,7 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
       assert has_element?(view, "#confirm-delete-workflow[role=alertdialog][aria-modal=true]")
       assert has_element?(view, "#confirm-delete-workflow-title", "Keep me")
       assert has_element?(view, "#confirm-delete-workflow[phx-hook]")
+      refute has_element?(view, "#confirm-delete-workflow[phx-window-keydown]")
 
       assert has_element?(
                view,
@@ -156,7 +215,7 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
       assert has_element?(view, "#workflow-#{draft.id}")
 
       view |> element("#workflow-#{draft.id}-delete") |> render_click()
-      view |> element("#confirm-delete-workflow") |> render_keydown(%{"key" => "Escape"})
+      view |> element("#confirm-delete-workflow") |> render_hook("cancel_delete", %{})
       refute has_element?(view, "#confirm-delete-workflow")
       assert {:ok, _draft} = Composer.get_draft(draft.id)
     end
@@ -175,6 +234,19 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
       assert {:error, _gone} = Composer.get_draft(draft.id)
     end
 
+    test "deleting a workflow a job runs keeps the job and its workflow name", %{conn: conn} do
+      draft = draft!(scenario_a(), "Release")
+      job = job!(project!(), %{"draft_id" => draft.id})
+      {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
+
+      view |> element("#workflow-#{draft.id}-delete") |> render_click()
+      view |> element("#confirm-delete-workflow-button") |> render_click()
+      refute has_element?(view, "#workflow-#{draft.id}")
+
+      {:ok, view, _html} = live(conn, ~p"/dashboard/jobs")
+      assert has_element?(view, "#job-#{job.number}-workflow", "Release")
+    end
+
     test "a stale or bogus delete request leaves the page working", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
 
@@ -189,6 +261,9 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/dashboard/workflows")
 
+    render_hook(view, "open_create", %{"entity" => "nope"})
+    refute has_element?(view, "#dashboard-new-workflow-dialog")
+
     for {event, params} <- [
           {"nope", %{}},
           {"create", %{"draft" => "x"}},
@@ -201,5 +276,15 @@ defmodule DomovoyWeb.DashboardWorkflowsLiveTest do
     end
 
     assert has_element?(view, "#workflow-#{draft.id}")
+  end
+
+  test "create on another panel inserts no draft", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboard/projects")
+    before = Composer.count_drafts()
+
+    render_hook(view, "create", %{"draft" => %{"title" => "x"}})
+
+    assert Composer.count_drafts() == before
+    assert has_element?(view, "#projects")
   end
 end

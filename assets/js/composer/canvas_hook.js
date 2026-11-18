@@ -717,7 +717,7 @@ export default {
     }
   },
 
-  // A modal dialog handles its own Escape, with `phx-window-keydown`.
+  // A modal dialog handles its own Escape.
   escape(event) {
     const confirmation = Boolean(document.querySelector("[aria-modal='true']"))
     // Both pickers are covered by the confirmation. Its separate window listener
