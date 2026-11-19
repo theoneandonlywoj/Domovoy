@@ -582,10 +582,13 @@ defmodule DomovoyWeb.ComposerComponents do
   end
 
   @doc """
-  The strip above the graph: workflow inputs, on a stage the sources from earlier stages,
-  and a popover holding the form that adds or changes an input. Only the chips scroll
-  sideways; the popover and Add input sit outside that scroller, so it never clips them.
+  The strip above the graph, an accordion closed by default: a centred toggle along its
+  bottom edge shows or hides the workflow inputs, on a stage the sources from earlier
+  stages, and Add input. The popover holding the form that adds or changes an input always
+  renders. Only the chips scroll sideways; the toggle, the popover and Add input sit outside
+  that scroller, so it never clips them.
   """
+  attr :open?, :boolean, default: false
   attr :inputs, :list, required: true
   attr :prior, :list, default: []
   attr :form, :any, required: true
@@ -600,25 +603,41 @@ defmodule DomovoyWeb.ComposerComponents do
       id="inputs-rail"
       aria-label="Workflow inputs"
       data-modal-background
-      class="soft-panel relative flex items-center gap-2 px-3 py-2"
+      class="soft-panel relative flex flex-wrap items-center gap-2 px-3 py-2"
     >
       <div
+        :if={@open?}
         id="inputs-scroller"
         class="flex min-w-0 flex-1 flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:py-1"
       >
-        <h2 class={["shrink-0", @section_title]}>Inputs</h2>
         <ul id="inputs-rows" class="flex flex-wrap items-center gap-2 max-md:flex-nowrap">
           <.input_row :for={input <- @inputs} :key={input.name} input={input} connect?={false} />
         </ul>
         <.prior_sources :if={@prior != []} sources={@prior} />
       </div>
       <button
+        :if={@open?}
         id="add-input"
         type="button"
         class={["shrink-0", @secondary]}
         phx-click={JS.push("new_input") |> show_inputs_popover() |> JS.focus(to: "#inputs-popover")}
       >
         <.icon name="hero-plus" class="size-4" /> Add input
+      </button>
+      <button
+        id="toggle-inputs"
+        type="button"
+        phx-click="toggle_inputs"
+        aria-expanded={to_string(@open?)}
+        aria-controls="inputs-scroller"
+        class="group flex basis-full items-center justify-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:text-base-content"
+      >
+        <span class={@section_title}>Inputs</span>
+        <span id="inputs-count" class="text-xs text-muted">{length(@inputs)}</span>
+        <.icon
+          name="hero-chevron-down"
+          class={["size-4 text-muted transition-transform", @open? && "rotate-180"]}
+        />
       </button>
       <div
         id="inputs-popover"
@@ -1675,6 +1694,9 @@ defmodule DomovoyWeb.ComposerComponents do
     </section>
     """
   end
+
+  defp focus_issue(%{issue: %{target: {:input, _name}}, anchor: anchor}),
+    do: JS.push("focus_input", value: %{focus: anchor})
 
   defp focus_issue(%{node: nil, anchor: anchor}), do: JS.focus(to: "##{anchor}")
 

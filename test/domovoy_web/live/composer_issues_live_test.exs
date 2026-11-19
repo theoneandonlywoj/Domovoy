@@ -22,6 +22,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
 
   defp doc(ops), do: edit_all(Document.new("w"), ops)
   defp click(view, selector), do: view |> element(selector) |> render_click()
+  defp open_inputs(view), do: click(view, "#toggle-inputs")
 
   defp issue_link?(view, target) do
     has_element?(view, "#issues li a[href='##{target}']")
@@ -55,6 +56,31 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
       assert_push_event(view, "composer:focus", %{id: "rel-after-detect-gone"})
       click(view, "#validate")
       refute has_element?(view, "#definition-valid")
+    end
+
+    test "an input's issue link opens the closed strip and focuses its row", %{conn: conn} do
+      document =
+        doc([{:put_input, "both", %{"type" => @string, "required" => true, "default" => "x"}}])
+
+      {_draft, view} = open(conn, document)
+      assert has_element?(view, "#toggle-inputs[aria-expanded='false']")
+      refute has_element?(view, "#input-both")
+
+      click(view, "#issues a[href='#input-both']")
+
+      assert has_element?(view, "#toggle-inputs[aria-expanded='true']")
+      assert has_element?(view, "#inputs-rows #input-both")
+      assert has_element?(view, "#composer-tools")
+      assert_push_event(view, "composer:focus", %{id: "input-both"})
+    end
+
+    test "focusing an unknown input changes nothing", %{conn: conn} do
+      {_draft, view} = open(conn, doc([{:put_input, "x", %{"type" => @string}}]))
+
+      render_hook(view, "focus_input", %{"focus" => "input-nope"})
+
+      assert has_element?(view, "#toggle-inputs[aria-expanded='false']")
+      refute_push_event(view, "composer:focus", %{})
     end
 
     test "following a node's issue selects that node", %{conn: conn} do
@@ -180,6 +206,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
   describe "workflow input defaults" do
     test "a calendar type offers no default control and stays usable", %{conn: conn} do
       {draft, view} = open(conn, doc([]))
+      open_inputs(view)
 
       view |> form("#inputs-form", input: %{type: @date}) |> render_change()
       assert has_element?(view, "#inputs-bind-only")
@@ -192,6 +219,7 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
 
     test "absent and null defaults stay distinct", %{conn: conn} do
       {draft, view} = open(conn, doc([]))
+      open_inputs(view)
 
       view
       |> form("#inputs-form", input: %{name: "absent", type: @any, default_state: "absent"})
@@ -240,6 +268,8 @@ defmodule DomovoyWeb.ComposerIssuesLiveTest do
     test "edit fills the form, and remove takes the input away", %{conn: conn} do
       {draft, view} =
         open(conn, doc([{:put_input, "x", %{"type" => @string, "default" => "y"}}]))
+
+      open_inputs(view)
 
       click(view, "#input-x-edit")
       assert has_element?(view, "#inputs-form input[name='input[name]'][value='x']")

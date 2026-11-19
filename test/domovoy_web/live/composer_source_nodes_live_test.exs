@@ -31,8 +31,14 @@ defmodule DomovoyWeb.ComposerSourceNodesLiveTest do
     ])
   end
 
+  # The inputs strip starts closed; every test here reads its rows.
   defp open(conn, draft, stage) do
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/#{stage}")
+    open_inputs(view)
+  end
+
+  defp open_inputs(view) do
+    render_click(element(view, "#toggle-inputs"))
     view
   end
 
@@ -200,6 +206,7 @@ defmodule DomovoyWeb.ComposerSourceNodesLiveTest do
 
   test "the workflow canvas has no source nodes", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft!(sourced()).id}")
+    open_inputs(view)
 
     assert has_element?(view, "#input-name")
     refute has_element?(view, "article[data-source-node]")

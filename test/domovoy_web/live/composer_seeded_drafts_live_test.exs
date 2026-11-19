@@ -95,6 +95,7 @@ defmodule DomovoyWeb.ComposerSeededDraftsLiveTest do
 
       assert_title(view, "#node-look_up_worktree-description", look_up)
       assert_title(view, "#source-branch_name-description", branch_name)
+      render_click(element(view, "#toggle-inputs"))
       assert_title(view, "#input-branch_name-description", branch_name)
     end
 

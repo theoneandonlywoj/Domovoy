@@ -85,6 +85,7 @@ defmodule DomovoyWeb.ComposerLive do
       stage: nil,
       shown: nil,
       panel: nil,
+      inputs_open?: false,
       surface: "canvas",
       canvas_only?: false,
       query: "",
@@ -299,6 +300,7 @@ defmodule DomovoyWeb.ComposerLive do
         <.notices conflict={@conflict} rejection={@rejection} />
         <.input_strip
           :if={!@run}
+          open?={@inputs_open?}
           inputs={@view.inputs}
           prior={if @stage, do: @view.prior_sources, else: []}
           form={@input_form}
@@ -716,6 +718,20 @@ defmodule DomovoyWeb.ComposerLive do
 
   def handle_event("close_tools", _params, socket) do
     {:noreply, if(socket.assigns.confirm, do: socket, else: assign(socket, :tools_open?, false))}
+  end
+
+  def handle_event("toggle_inputs", _params, socket),
+    do: {:noreply, assign(socket, :inputs_open?, not socket.assigns.inputs_open?)}
+
+  # An input's issue link: the rows render only while open, so open first, then let the
+  # canvas hook focus the row once the patch has rendered it.
+  def handle_event("focus_input", %{"focus" => focus}, socket) when is_binary(focus) do
+    if Enum.any?(socket.assigns.view.inputs, &(&1.dom_id == focus)) do
+      {:noreply,
+       socket |> assign(:inputs_open?, true) |> push_event("composer:focus", %{id: focus})}
+    else
+      {:noreply, socket}
+    end
   end
 
   # Panels. Below `md` one surface fills the screen; only these names are accepted.

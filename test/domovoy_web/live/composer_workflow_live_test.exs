@@ -336,6 +336,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
       draft = draft!(across())
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/second")
       render_click(element(view, "#open-tools"))
+      render_click(element(view, "#toggle-inputs"))
       {draft, view}
     end
 
@@ -363,6 +364,7 @@ defmodule DomovoyWeb.ComposerWorkflowLiveTest do
       document = edit_all(across(), [{:set_next, "second", "main"}])
       {:ok, view, _html} = live(conn, ~p"/composer/#{draft!(document).id}/stages/second")
       render_click(element(view, "#open-tools"))
+      render_click(element(view, "#toggle-inputs"))
       assert has_element?(view, "#prior-resolve_worktree-generation", "earlier generation")
     end
 
