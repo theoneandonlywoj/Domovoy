@@ -291,6 +291,36 @@ press and release at one point.
 
 Not walked: a physical display, a real phone and a screen reader.
 
+### Inputs accordion — 2026-11-19
+
+`#inputs-rail` is now an accordion, closed on every load: one header button
+`#toggle-inputs` ("Inputs", the count in `#inputs-count`, a chevron) with
+`aria-expanded`/`aria-controls`. The server assign `inputs_open?` renders `#inputs-scroller`
+(rows, and on a stage the "From earlier" sources) and `#add-input` only while open;
+`#inputs-popover` always renders. An Issues link for an input pushes `focus_input`, which
+opens the strip and then pushes `composer:focus`.
+
+Walked 2026-11-19 in headless Chrome 157.0.8103.79 through CDP (trusted mouse and key
+events, two animation frames before each read), port 4016, on the seeded draft "Create a
+worktree" (3 inputs, unchanged). Routes: `/composer/<id>` at 1440x900 and 390x844,
+`/dashboard/workflows/<id>` at 390x844. The dev database was already seeded, so
+`make db-seed-dev` was not rerun. Nothing was saved or removed.
+
+| Check | Result |
+|---|---|
+| Load | Pass, all three: `aria-expanded="false"`, no `#inputs-rows`, no `#add-input`, `#inputs-count` reads `3`; the rail is one line (38 px tall, the toggle 20 px) |
+| Open pushes the canvas down | Pass, all three: `#workspace` top 138 → 230 at 1440 (rail 38 → 130 px, the chips wrap), 222 → 242 at 390 and 292 → 312 on the dashboard; `#stage-canvas` shrinks by the same amount (746 → 654, 614 → 594, 544 → 524); the rail's bottom never passes the canvas's top. The transform was read only after opening, so the absence of a re-fit was not compared |
+| Close moves it back | Pass, all three: `#workspace` top and canvas height return to their load values |
+| 390 px scroller | Pass, both routes: `#inputs-scroller` `overflow-x: auto` (scrollWidth 1917, clientWidth 131 on `/composer`, 67 on the dashboard); after `scrollLeft = 400`, `elementFromPoint` at the toggle's centre still hits `#toggle-inputs`; no page overflow (`scrollWidth` 390) |
+| Add input, then Escape | Pass, all three: Add input shows the popover (`display: block`) and focuses `#inputs-popover`; Escape hides it (`hidden` back, `display: none`) and the accordion stays open |
+| Click-away | Pass, all three: a click on the `#stage-canvas` background hides the popover; the accordion stays open |
+| Toggle while the popover is open | Pass, all three: one click on `#toggle-inputs` hides the popover (`hidden`, `display: none`) and closes the accordion (`aria-expanded="false"`, no rows) |
+| Input issue link focuses the row | Not walked: no seeded draft has an issue on an input, and making one would write dev data. The LiveView test proves the open and the `composer:focus` push, not that focus lands |
+| Wire alignment after the resize | Not measured: only the rail-versus-canvas overlap was read |
+
+No page exception was observed. Not walked: a physical display, a real phone and a screen
+reader.
+
 ## Screenshots
 
 In `screenshots/`: `02-mid-drag`, `04-preview`, `05-hover-refused`, `06-rejection`,
