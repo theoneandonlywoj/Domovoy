@@ -102,13 +102,19 @@ defmodule DomovoyWeb.ComposerDescriptionsLiveTest do
     {draft, view(conn, draft, stage)}
   end
 
+  # The inputs strip starts closed; open it so its rows' icons are on the page.
   defp view(conn, draft, nil) do
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
-    view
+    open_inputs(view)
   end
 
   defp view(conn, draft, stage) do
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/#{stage}")
+    open_inputs(view)
+  end
+
+  defp open_inputs(view) do
+    render_click(element(view, "#toggle-inputs"))
     view
   end
 

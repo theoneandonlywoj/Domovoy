@@ -66,6 +66,8 @@ defmodule DomovoyWeb.ComposerHostileEventsTest do
       {"save_input", %{"input" => value}},
       {"edit_input", %{"name" => value}},
       {"remove_input", %{"name" => value}},
+      {"toggle_inputs", %{"x" => value}},
+      {"focus_input", %{"focus" => value}},
       {"catalog_search", %{"catalog" => %{"text" => value}}},
       {"pick_runner", %{"runner" => value}},
       {"add_node", %{"add_node" => %{"runner" => value, "name" => "fresh"}}},

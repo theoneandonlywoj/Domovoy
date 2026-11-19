@@ -159,6 +159,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
           {:add_after, "main", "c", "a-b"}
         ])
 
+      click(view, "#toggle-inputs")
       click(view, "#node-validators-select")
       document = LazyHTML.from_fragment(render(view))
 
@@ -194,6 +195,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
       {:ok, draft} = Composer.create_draft(%{title: "By keyboard"})
       view = open(conn, draft, "main")
       refute undo_offered?(view)
+      click(view, "#toggle-inputs")
 
       view
       |> form("#inputs-form", input: %{name: "tree", type: @string, required: "true"})
@@ -514,6 +516,7 @@ defmodule DomovoyWeb.ComposerStageLiveTest do
       draft = draft!(scenario_a())
       before = saved_document(draft)
       view = open(conn, draft)
+      click(view, "#toggle-inputs")
 
       click(view, "#validate")
       assert has_element?(view, "#definition-valid")

@@ -68,6 +68,17 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
       )
   end
 
+  defp open_inputs(view), do: render_click(element(view, "#toggle-inputs"))
+
+  defp inputs_count(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("#inputs-count")
+    |> LazyHTML.text()
+    |> String.trim()
+  end
+
   defp assert_popover_outside_scroller(view) do
     assert has_element?(view, "#inputs-rail > #inputs-popover")
     assert has_element?(view, "#inputs-rail > #add-input")
@@ -80,6 +91,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "the strip sits above the graph, out of the side panel, with every input", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
 
     assert has_element?(view, "#inputs-rail[data-modal-background]")
     refute has_element?(view, "#outline-panel #inputs-rail")
@@ -94,6 +106,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "a stage shows the sources from earlier in the strip", %{conn: conn} do
     draft = draft!(staged())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/second")
+    open_inputs(view)
 
     assert has_element?(view, "#inputs-rail #prior-sources")
     assert has_element?(view, "#inputs-rail #inputs-rows #input-name")
@@ -103,6 +116,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "Edit fills the form in the popover", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
 
     view |> element("#input-prompt-edit") |> render_click()
 
@@ -115,6 +129,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "saving a new input adds its chip", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
     refute has_element?(view, "#inputs-rows #input-floor")
 
     view
@@ -128,6 +143,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "the dashboard composer has the strip above the graph too", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/dashboard/workflows/#{draft.id}")
+    open_inputs(view)
 
     assert has_element?(view, "#inputs-rail #inputs-rows")
     refute has_element?(view, "#outline-panel #inputs-rail")
@@ -137,6 +153,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "every opener drops hidden and every closer restores it", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
 
     add = js_ops(view, "#add-input", "phx-click")
     edit = js_ops(view, "#input-prompt-edit", "phx-click")
@@ -172,9 +189,11 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
     draft = draft!(scenario_a())
 
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
     assert_popover_outside_scroller(view)
 
     {:ok, view, _html} = live(conn, ~p"/dashboard/workflows/#{draft.id}")
+    open_inputs(view)
     assert_popover_outside_scroller(view)
   end
 
@@ -184,6 +203,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "Add input after Edit gives a blank form", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
 
     view |> element("#input-prompt-edit") |> render_click()
     assert has_element?(view, ~s(#{@name_field}[value="prompt"]))
@@ -203,6 +223,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
 
     draft = draft!(document)
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
     type = ~s(#inputs-form select[name="input[type]"])
     default = ~s(#inputs-form select[name="input[default_state]"])
 
@@ -218,6 +239,7 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
   test "new_input with a junk payload still resets", %{conn: conn} do
     draft = draft!(scenario_a())
     {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
 
     view |> element("#input-prompt-edit") |> render_click()
     render_hook(view, "new_input", %{"x" => 1})
@@ -225,5 +247,108 @@ defmodule DomovoyWeb.ComposerInputsStripLiveTest do
     assert has_element?(view, "#inputs-form")
     refute has_element?(view, ~s(#{@name_field}[value="prompt"]))
     refute has_element?(view, @required_checked)
+  end
+
+  test "the strip starts closed, showing only its header and count", %{conn: conn} do
+    draft = draft!(scenario_a())
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+
+    assert has_element?(
+             view,
+             "#toggle-inputs[aria-expanded='false'][aria-controls='inputs-scroller']"
+           )
+
+    assert inputs_count(view) == "#{map_size(draft.document["inputs"])}"
+    refute has_element?(view, "#inputs-scroller")
+    refute has_element?(view, "#inputs-rows")
+    refute has_element?(view, "#input-prompt")
+    refute has_element?(view, "#add-input")
+    assert has_element?(view, "#inputs-rail > #inputs-popover #inputs-form")
+  end
+
+  test "the toggle opens and closes the strip", %{conn: conn} do
+    draft = draft!(scenario_a())
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    names = Map.keys(draft.document["inputs"])
+
+    open_inputs(view)
+    assert has_element?(view, "#toggle-inputs[aria-expanded='true']")
+    assert has_element?(view, "#inputs-rail > #add-input")
+    for name <- names, do: assert(has_element?(view, "#inputs-rows #input-#{name}"))
+
+    open_inputs(view)
+    assert has_element?(view, "#toggle-inputs[aria-expanded='false']")
+    refute has_element?(view, "#add-input")
+    for name <- names, do: refute(has_element?(view, "#input-#{name}"))
+  end
+
+  test "a stage's earlier sources live inside the closed strip", %{conn: conn} do
+    draft = draft!(staged())
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}/stages/second")
+
+    assert inputs_count(view) == "1"
+    refute has_element?(view, "#prior-sources")
+    refute has_element?(view, "#any-across-stages")
+
+    open_inputs(view)
+    assert has_element?(view, "#inputs-rail #prior-sources")
+    assert has_element?(view, "#inputs-rows #input-name")
+  end
+
+  test "the strip stays open across a save", %{conn: conn} do
+    draft = draft!(scenario_a())
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
+
+    view
+    |> form("#inputs-form", input: %{name: "floor", type: @string})
+    |> render_submit()
+
+    assert has_element?(view, "#inputs-rows #input-floor")
+    assert has_element?(view, "#toggle-inputs[aria-expanded='true']")
+  end
+
+  test "the dashboard composer starts closed and opens the same way", %{conn: conn} do
+    draft = draft!(scenario_a())
+    {:ok, view, _html} = live(conn, ~p"/dashboard/workflows/#{draft.id}")
+
+    assert has_element?(view, "#toggle-inputs[aria-expanded='false']")
+    refute has_element?(view, "#inputs-rows")
+
+    open_inputs(view)
+    assert has_element?(view, "#toggle-inputs[aria-expanded='true']")
+    assert has_element?(view, "#inputs-rail #inputs-rows #input-prompt")
+  end
+
+  test "a draft with no inputs counts 0, and Add input shows once open", %{conn: conn} do
+    draft = draft!(Document.new("w"))
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+
+    assert inputs_count(view) == "0"
+    refute has_element?(view, "#add-input")
+
+    open_inputs(view)
+    assert has_element?(view, "#add-input")
+  end
+
+  test "the strip stays open when the draft reloads", %{conn: conn} do
+    draft = draft!(scenario_a())
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
+
+    render_hook(view, "load_latest", %{})
+
+    assert has_element?(view, "#toggle-inputs[aria-expanded='true']")
+  end
+
+  test "the strip stays open across a patch to a stage", %{conn: conn} do
+    draft = draft!(staged())
+    {:ok, view, _html} = live(conn, ~p"/composer/#{draft.id}")
+    open_inputs(view)
+
+    render_patch(view, ~p"/composer/#{draft.id}/stages/second")
+
+    assert has_element?(view, "#toggle-inputs[aria-expanded='true']")
+    assert has_element?(view, "#inputs-rail #prior-sources")
   end
 end
